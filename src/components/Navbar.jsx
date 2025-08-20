@@ -1,39 +1,41 @@
-import React, { useState } from 'react';
-import { Menu, X, ChevronDown } from 'lucide-react';
-import {  Link, useLocation } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Menu, X } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@mui/material';
 
-
-
-const Navbar= ({ isAuthenticated = false }) => {
+const Navbar = () => {
+  const isAuthenticated = !!localStorage.getItem("token");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
-  
+  const navigate = useNavigate();
+
   const toggleMenu = () => setIsMenuOpen(!isMenuOpen);
   const closeMenu = () => setIsMenuOpen(false);
-  
-  const isActive = (path) => {
-    return location.pathname === path;
+
+  const isActive = (path) => location.pathname === path;
+
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    window.location.href = "/auth"; // page reload + redirect
   };
-  
+
   return (
     <nav className="bg-white shadow-sm sticky top-0 z-50 py-2">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
+          {/* Left side logo + nav */}
           <div className="flex items-center">
             <Link to="/" className="flex-shrink-0 flex items-center">
-              {/* <span className="text-blue-800 font-bold text-xl"> */}
-                <img src="/logo.png" alt="" className='w-20 ms-1'/> 
-              {/* </span> */}
+              <img src="/logo.png" alt="" className="w-20 ms-1" />
             </Link>
-            
+
             {/* Desktop Navigation */}
             <div className="hidden md:ml-6 md:flex md:space-x-8 !ms-28">
               <Link
                 to="/"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  isActive('/') 
-                    ? 'border-blue-800 text-gray-900' 
+                  isActive('/')
+                    ? 'border-blue-800 text-gray-900'
                     : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                 }`}
               >
@@ -42,8 +44,8 @@ const Navbar= ({ isAuthenticated = false }) => {
               <Link
                 to="/artworks"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  isActive('/artworks') 
-                    ? 'border-blue-800 text-gray-900' 
+                  isActive('/artworks')
+                    ? 'border-blue-800 text-gray-900'
                     : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                 }`}
               >
@@ -52,19 +54,18 @@ const Navbar= ({ isAuthenticated = false }) => {
               <Link
                 to="/contact"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  isActive('/contact') 
-                    ? 'border-blue-800 text-gray-900' 
+                  isActive('/contact')
+                    ? 'border-blue-800 text-gray-900'
                     : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                 }`}
               >
                 Contact
               </Link>
-             
               <Link
                 to="/faqs"
                 className={`inline-flex items-center px-1 pt-1 border-b-2 text-sm font-medium ${
-                  isActive('/faqs') 
-                    ? 'border-blue-800 text-gray-900' 
+                  isActive('/faqs')
+                    ? 'border-blue-800 text-gray-900'
                     : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                 }`}
               >
@@ -72,30 +73,35 @@ const Navbar= ({ isAuthenticated = false }) => {
               </Link>
             </div>
           </div>
-          
-          {/* Right side buttons */}
+
+          {/* Right side buttons (Desktop) */}
           <div className="hidden md:flex md:items-center md:space-x-4">
             {isAuthenticated ? (
-              <Link to="/dashboard">
-                <Button variant="outlined" color='secondary'>Dashboard</Button>
-              </Link>
-            ) : (
               <>
-                <Link to="/auth">
-                  <Button variant="contained" color='secondary' className='cursor-pointer'>Sign In</Button>
+                <Link to="/dashboard">
+                  <Button variant="outlined" color="secondary">Dashboard</Button>
                 </Link>
-                
+                <Button
+                  variant="contained"
+                  color="error"
+                  onClick={handleLogout}
+                >
+                  Logout
+                </Button>
               </>
+            ) : (
+              <Link to="/auth">
+                <Button variant="contained" color="secondary">Sign In</Button>
+              </Link>
             )}
           </div>
-          
+
           {/* Mobile menu button */}
           <div className="flex items-center md:hidden">
             <button
               onClick={toggleMenu}
               className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
             >
-              <span className="sr-only">{isMenuOpen ? 'Close menu' : 'Open menu'}</span>
               {isMenuOpen ? (
                 <X className="h-6 w-6" aria-hidden="true" />
               ) : (
@@ -105,7 +111,7 @@ const Navbar= ({ isAuthenticated = false }) => {
           </div>
         </div>
       </div>
-      
+
       {/* Mobile Menu */}
       {isMenuOpen && (
         <div className="md:hidden">
@@ -113,8 +119,8 @@ const Navbar= ({ isAuthenticated = false }) => {
             <Link
               to="/"
               className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
-                isActive('/') 
-                  ? 'border-blue-800 text-blue-800 bg-blue-50' 
+                isActive('/')
+                  ? 'border-blue-800 text-blue-800 bg-blue-50'
                   : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
               }`}
               onClick={closeMenu}
@@ -124,8 +130,8 @@ const Navbar= ({ isAuthenticated = false }) => {
             <Link
               to="/artworks"
               className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
-                isActive('/artworks') 
-                  ? 'border-blue-800 text-blue-800 bg-blue-50' 
+                isActive('/artworks')
+                  ? 'border-blue-800 text-blue-800 bg-blue-50'
                   : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
               }`}
               onClick={closeMenu}
@@ -139,13 +145,11 @@ const Navbar= ({ isAuthenticated = false }) => {
             >
               Contact
             </Link>
-          
-           
             <Link
               to="/faqs"
               className={`block pl-3 pr-4 py-2 border-l-4 text-base font-medium ${
-                isActive('/faqs') 
-                  ? 'border-blue-800 text-blue-800 bg-blue-50' 
+                isActive('/faqs')
+                  ? 'border-blue-800 text-blue-800 bg-blue-50'
                   : 'border-transparent text-gray-500 hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700'
               }`}
               onClick={closeMenu}
@@ -153,25 +157,35 @@ const Navbar= ({ isAuthenticated = false }) => {
               Faqs
             </Link>
           </div>
-          <div className="pt-4 pb-3 border-t border-gray-200">
-            <div className="flex items-center px-4 space-x-3">
-              {isAuthenticated ? (
-                <Link to="/dashboard" className="w-full" onClick={closeMenu}>
-                  <Button variant="contained" color='secondary' fullWidth className='cursor-pointer'>
+
+          {/* Mobile Auth Buttons */}
+          <div className="pt-4 pb-3 border-t border-gray-200 px-4 space-y-2">
+            {isAuthenticated ? (
+              <>
+                <Link to="/dashboard" onClick={closeMenu}>
+                  <Button variant="outlined" color="secondary" fullWidth>
                     Dashboard
                   </Button>
                 </Link>
-              ) : (
-                <div className="w-full space-y-2">
-                  <Link to="/auth" className="block w-full" onClick={closeMenu}>
-                    <Button variant="contained" color='secondary' fullWidth className='cursor-pointer '>
-                      Sign In
-                    </Button>
-                  </Link>
-                  
-                </div>
-              )}
-            </div>
+                <Button
+                  variant="contained"
+                  color="error"
+                  fullWidth
+                  onClick={() => {
+                    closeMenu();
+                    handleLogout();
+                  }}
+                >
+                  Logout
+                </Button>
+              </>
+            ) : (
+              <Link to="/auth" onClick={closeMenu}>
+                <Button variant="contained" color="secondary" fullWidth>
+                  Sign In
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       )}

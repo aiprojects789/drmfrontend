@@ -74,7 +74,7 @@ try {
   console.log('Login Success:', res.data);
 
   localStorage.setItem('token', res.data.access_token);
-  localStorage.setItem('token_expiry', expiry);
+  // localStorage.setItem('token_expiry', expiry);
   setIsLogin(true);
   alert('Login successful');
 
@@ -129,13 +129,15 @@ try {
             </p>
           </div>
           <Form.Item label={null}>
-            <Button
+             <Button
               className="!bg-purple-600 hover:!bg-purple-500 active:!bg-purple-700 focus:!ring-4 focus:!ring-purple-300 !text-white w-full rounded-md transition-all duration-200 ease-in-out"
               type='primary'
               size='large'
+              htmlType="submit" // Add this line
             >
-              {authMode == 'signup' ? 'Sign Up' : 'Login'}
-            </Button>
+              {authMode === 'signup' ? 'Sign Up' : 'Login'}
+              </Button>
+   
             <p className='text-center my-3'>or</p>
             <Button startIcon={<FcGoogle />
             } size='large' className='w-full bg-gray-50 !border-white !shadow-2xs !shadow-gray-300'>

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, ArrowLeft } from 'lucide-react';
 import { Button, TextField, InputAdornment, Input } from '@mui/material';
 import { baseURL } from '../../utils/backend_url';
@@ -16,85 +16,81 @@ const ForgotPasswordForm = ({ onBack }) => {
 
   const navigate = useNavigate();
 
+  // Step 1: Send email
   const handleSubmitEmail = async (e) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const verifyEmail = new URLSearchParams();
-    verifyEmail.append('email', email)
+
     try {
-      await axios.post(`${baseURL}/api/v1/auth/forgot-password?email=${email}`)
-        console.log("Successfully send code!");
-        
+      await axios.post(`${baseURL}/api/v1/auth/forgot-password`, {
+        email: email,   // ✅ send as JSON body
+      });
+
+      console.log("Successfully sent code!");
       setStep('verify');
     } catch (err) {
-      setError(err.detail);
-      console.log(err);
-      
+      setError(err.response?.data?.detail || "Something went wrong");
+      console.log(err.response?.data || err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleVerifyCode = async (e) => {
-    e.preventDefault();
-    setError(null);
-    if (newPassword !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-    setLoading(true);
+  // Step 2: Verify + Reset Password
+const handleVerifyCode = async (e) => {
+  e.preventDefault();
+  setError(null);
 
-    try {
-      // Simulate API call to verify code
-      await axios.post(`${baseURL}/api/v1/auth/reset-password?token=${verificationCode}&new_password=${newPassword}`)
-      // setStep('reset');
-    } catch (err) {
-      setError(err.detail);
-    } finally {
-      setLoading(false);
-    }
-  };
+  if (newPassword !== confirmPassword) {
+    setError('Passwords do not match');
+    return;
+  }
+  setLoading(true);
 
-  const handleResetPassword = async (e) => {
-    e.preventDefault();
-    setError(null);
+try {
+  await axios.post(`${baseURL}/api/v1/auth/reset-password`, {
+    email: email,
+    otp: verificationCode,
+    new_password: newPassword,
+  });
 
-    if (newPassword !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
+  console.log("Password reset success");
 
-    setLoading(true);
+  // ✅ Success ke baad error clear + form reset
+  setError(null);
+  setStep("done");
 
-    try {
-      // Simulate API call to reset password
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      onBack()
-    } catch (err) {
-      setError('Failed to reset password. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ✅ Chhota sa delay aur navigate
+  setTimeout(() => {
+    navigate("/auth"); // redirect to login
+  }, 500);
+
+} catch (err) {
+  setError(err.response?.data?.detail || "Invalid code or server error");
+  console.log(err.response?.data || err);
+} finally {
+  setLoading(false);
+}
+
+};
+
 
   return (
-    <div className="bg-white p-8 rounded-2xl  shadow-lg w-full max-w-xl">
+    <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-xl">
       <div className="max-w-md w-full space-y-8">
         <div>
-          <p onClick={onBack} className="flex items-center text-sm text-purple-800 hover:text-purple-700 cursor-pointer">
+          <p onClick={onBack} className="flex items-center text-lg text-purple-800 hover:text-purple-700 cursor-pointer">
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back to Login
           </p>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
             {step === 'email' && 'Reset your password'}
             {step === 'verify' && 'Enter verification code'}
-            {/* {step === 'reset' && 'Create new password'} */}
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
             {step === 'email' && 'Enter your email address to receive a verification code'}
             {step === 'verify' && 'We sent a code to your email'}
-            {/* {step === 'reset' && 'Choose a strong password for your account'} */}
           </p>
         </div>
 
@@ -105,6 +101,7 @@ const ForgotPasswordForm = ({ onBack }) => {
             </div>
           )}
 
+          {/* Step 1: Email */}
           {step === 'email' && (
             <form className="space-y-6" onSubmit={handleSubmitEmail}>
               <TextField
@@ -126,15 +123,16 @@ const ForgotPasswordForm = ({ onBack }) => {
                 type="submit"
                 color="secondary"
                 variant='contained'
-                // isLoading={loading}
+                disabled={loading}
                 fullWidth
                 className='!my-5'
               >
-                Send Verification Code
+                {loading ? "Sending..." : "Send Verification Code"}
               </Button>
             </form>
           )}
 
+          {/* Step 2: Verify + Reset */}
           {step === 'verify' && (
             <form className="space-y-6" onSubmit={handleVerifyCode}>
               <Input
@@ -144,24 +142,20 @@ const ForgotPasswordForm = ({ onBack }) => {
                 onChange={(e) => setVerificationCode(e.target.value)}
                 required
                 fullWidth
-                helpText="Enter the 6-digit code sent to your email"
               />
-               <Input
+              <Input
                 placeholder="New Password"
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
-                leftIcon={<Lock className="h-5 w-5 text-gray-400" />}
                 required
                 fullWidth
-                helpText="Password must be at least 8 characters"
               />
               <Input
                 placeholder="Confirm Password"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                leftIcon={<Lock className="h-5 w-5 text-gray-400" />}
                 required
                 fullWidth
               />
@@ -169,48 +163,14 @@ const ForgotPasswordForm = ({ onBack }) => {
                 type="submit"
                 color="secondary"
                 variant='contained'
-                isLoading={loading}
+                disabled={loading}
                 fullWidth
                 className='!my-5'
               >
-                Reset Password
+                {loading ? "Resetting..." : "Reset Password"}
               </Button>
             </form>
           )}
-
-          {/* {step === 'reset' && (
-            <form className="space-y-6" onSubmit={handleResetPassword}>
-              <Input
-                placeholder="New Password"
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                leftIcon={<Lock className="h-5 w-5 text-gray-400" />}
-                required
-                fullWidth
-                helpText="Password must be at least 8 characters"
-              />
-              <Input
-                placeholder="Confirm Password"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                leftIcon={<Lock className="h-5 w-5 text-gray-400" />}
-                required
-                fullWidth
-              />
-              <Button
-                type="submit"
-                color="secondary"
-                variant='contained'
-                isLoading={loading}
-                fullWidth
-                className='!my-5'
-              >
-                Reset Password
-              </Button>
-            </form>
-          )} */}
         </div>
       </div>
     </div>
