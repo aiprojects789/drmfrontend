@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Menu, X } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@mui/material';
+import WalletButton from "./WalletButton"; // 👈 apni file ka path adjust karo
 
 const Navbar = () => {
   const isAuthenticated = !!localStorage.getItem("token");
@@ -76,24 +77,34 @@ const Navbar = () => {
 
           {/* Right side buttons (Desktop) */}
           <div className="hidden md:flex md:items-center md:space-x-4">
-            {isAuthenticated ? (
-              <>
-                <Link to="/dashboard">
-                  <Button variant="outlined" color="secondary">Dashboard</Button>
-                </Link>
-                <Button
-                  variant="contained"
-                  color="error"
-                  onClick={handleLogout}
-                >
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <Link to="/auth">
-                <Button variant="contained" color="secondary">Sign In</Button>
-              </Link>
-            )}
+
+{isAuthenticated ? (
+  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+    <WalletButton />
+    
+    <Link to="/dashboard" style={{ textDecoration: 'none' }}>
+      <Button variant="outlined" color="secondary" size="small">
+        Dashboard
+      </Button>
+    </Link>
+
+    <Button
+      variant="contained"
+      color="error"
+      size="small"
+      onClick={handleLogout}
+    >
+      Logout
+    </Button>
+  </div>
+) : (
+  <Link to="/auth" style={{ textDecoration: 'none' }}>
+    <Button variant="contained" color="secondary" size="small">
+      Sign In
+    </Button>
+  </Link>
+)}
+
           </div>
 
           {/* Mobile menu button */}

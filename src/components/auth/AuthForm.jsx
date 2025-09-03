@@ -87,8 +87,6 @@ try {
   console.error('Login Error:', err.response?.data || err.message);
   alert(err.response?.data.detail || 'Login failed');
 }
-
-
   }
   }
     useEffect(() => {
