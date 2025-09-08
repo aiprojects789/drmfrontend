@@ -20,8 +20,7 @@ const Home = () => {
             Protect and Monetize Your Digital Creations
           </h1>
           <p className="mt-6 max-w-2xl text-xl text-blue-100">
-            A blockchain-powered platform that ensures your digital artwork 
-            remains yours, prevents unauthorized use, and creates ethical revenue streams.
+            A blockchain-powered, DRM-based platform that safeguards your digital artwork, ensures true ownership, prevents unauthorized use, enables simple account-based transactions, and creates ethical revenue streams.
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row gap-4">

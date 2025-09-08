@@ -1,66 +1,231 @@
-import React, { useEffect, useState } from 'react'
-import ArtworkCards from '../../../components/dashboard/ArtworkCards'
-import { baseURL } from '../../../utils/backend_url';
-import axios from 'axios';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from '../../../context/AuthContext';
+import { artworksAPI } from '../../../services/api';
+import { Palette, ArrowRight } from 'lucide-react';
+import LoadingSpinner from '../../../components/common/LoadingSpinner';
+import toast from 'react-hot-toast';
+import IPFSImage from '../../../components/common/IPFSImage';
+import { Link } from 'react-router-dom';
 
 const MyArtworks = () => {
-  const [artworks, setArtworks] = useState([])
-  useEffect(() => {
-    const MyArtworks = async () => {
-      try {
-        const res = await axios.get(`${baseURL}/api/v1/artwork/my-artwork`, {
-          headers: {
-            'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1QHJtLmNvbSIsInVzZXJfaWQiOiI2ODMzNTFjNWJjZDU4YmQxMzMyNTA1MDQiLCJ3YWxsZXRfYWRkcmVzcyI6bnVsbCwiZXhwIjoxNzQ4MTk4Nzk5fQ.swPaXqbrSyRZJVEgKE0t4oPgsY8OqtsPiqmINMfrDZ4`
-          }
-        })
-        setArtworks(res.data);
-        console.log('adas', artworks);
+  const { isAuthenticated, user } = useAuth();
+  const [artworks, setArtworks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-        console.log(res.data);
+  // Fetch user artworks
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const fetchArtworks = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        console.log('🔄 Fetching artworks for user');
+        
+        // FIX: Use wallet_address instead of user.id
+        const walletAddress = user?.wallet_address;
+        if (!walletAddress) {
+          throw new Error('Wallet address not found in user data');
+        }
+        
+        console.log('📍 Using wallet address:', walletAddress);
+        
+        // Use the artworksAPI from your services
+        const response = await artworksAPI.getByOwner(walletAddress, { page: 1, size: 100 });
+        
+        // Handle different response structures
+        const artworksData = response.data || response.artworks || [];
+        setArtworks(artworksData);
+        
+        console.log('✅ Fetched artworks:', artworksData.length);
+        
+      } catch (error) {
+        console.error('❌ Error fetching artworks:', error);
+        setError(`Failed to load artworks: ${error.message}`);
+        toast.error('Failed to load artworks');
+        setArtworks([]);
+      } finally {
+        setIsLoading(false);
       }
-      catch (error) {
-        console.error('Error fetching artworks:', error);
+    };
+
+    fetchArtworks();
+  }, [isAuthenticated, user?.wallet_address]); // FIX: Depend on wallet_address instead of user
+
+  // Helper function to format dates safely
+  const formatDate = (dateString) => {
+    if (!dateString) return 'Unknown Date';
+    
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) {
+        const altDate = new Date(dateString.replace(/\.\d+Z$/, 'Z'));
+        if (!isNaN(altDate.getTime())) {
+          return altDate.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+        }
+        return 'Invalid Date';
       }
+      
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+    } catch (error) {
+      console.error('Error formatting date:', error, dateString);
+      return 'Invalid Date';
     }
-    fetchMyArtworks();
-  }, []);
+  };
+
+  // Redirect if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg p-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Authentication Required
+          </h2>
+          <p className="text-gray-600 mb-6">
+            Please log in to view your artworks.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className='mb-6'>
-
         <h1 className="text-2xl font-bold text-gray-900">My Artworks</h1>
         <p className="mt-1 text-sm text-gray-500">
           View your uploaded artworks
         </p>
+        {/* Debug info - remove in production */}
+        <p className="mt-2 text-xs text-gray-400">
+          Wallet: {user?.wallet_address}
+        </p>
       </div>
 
-     {artworks.length > 0 ? 
-      <div className='grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4'>
-       {artworks.map((artwork, index) => {
-  const formattedDate = artwork.created_at
-    ? new Date(artwork.created_at).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      })
-    : 'Unknown Date';
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
 
-  return (
-    <ArtworkCards
-      key={index}
-      title={artwork.title}
-      date={formattedDate}
-      price={artwork.price}
-      ipfsHash={artwork.ipfs_hash}
-      />
-    );
-  })
-  
-}
-</div>
-:"No artworks found"}
+      {isLoading ? (
+        <div className="flex justify-center p-12">
+          <LoadingSpinner size="medium" />
+        </div>
+      ) : artworks.length === 0 ? (
+        <div className="text-center py-12 bg-white rounded-lg shadow border border-gray-200">
+          <Palette className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+          <p className="text-gray-500 mb-4">
+            You haven't registered any artworks yet
+          </p>
+          <Link
+            to="/register"
+            className="text-purple-600 hover:text-purple-800 font-medium"
+          >
+            Register your first artwork
+          </Link>
+        </div>
+      ) : (
+        <div className='grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
+          {artworks.map((artwork) => {
+            const formattedDate = formatDate(artwork.created_at);
+            const imageUrl = artwork.image_url || artwork.metadata_uri || artwork.ipfs_hash;
+
+            return (
+              <div
+                key={artwork.id || artwork.token_id}
+                className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow"
+              >
+                <div className="bg-gray-100 h-48 flex items-center justify-center">
+                  {imageUrl ? (
+                    <IPFSImage
+                      src={imageUrl}
+                      alt={`Artwork ${artwork.title || artwork.token_id}`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="text-center">
+                      <Palette className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">No image available</p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="p-6">
+                  <div className="flex justify-between items-start mb-2">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {artwork.title || `Artwork #${artwork.token_id || artwork.id}`}
+                    </h3>
+                    <span
+                      className={`px-2 py-1 text-xs rounded-full ${
+                        artwork.is_licensed
+                          ? "bg-green-100 text-green-800"
+                          : "bg-gray-100 text-gray-800"
+                      }`}
+                    >
+                      {artwork.is_licensed ? "Licensed" : "Available"}
+                    </span>
+                  </div>
+                  
+                  <p className="text-sm text-gray-500 mb-4">
+                    Created: {formattedDate}
+                  </p>
+                  
+                  {artwork.description && (
+                    <p className="text-sm text-gray-600 mb-4 line-clamp-2">
+                      {artwork.description}
+                    </p>
+                  )}
+                  
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="text-xs text-gray-500">Royalty</p>
+                      <p className="text-sm font-semibold">
+                        {artwork.royalty_percentage 
+                          ? `${(artwork.royalty_percentage / 100).toFixed(2)}%`
+                          : 'N/A'
+                        }
+                      </p>
+                    </div>
+                    
+                    {artwork.price && (
+                      <div>
+                        <p className="text-xs text-gray-500">Price</p>
+                        <p className="text-sm font-semibold">
+                          {typeof artwork.price === 'number' 
+                            ? `$${artwork.price.toFixed(2)}`
+                            : artwork.price
+                          }
+                        </p>
+                      </div>
+                    )}
+                    
+                    <Link
+                      to={`/artwork/${artwork.token_id || artwork.id}`}
+                      className="inline-flex items-center text-sm font-medium text-purple-600 hover:text-purple-800"
+                    >
+                      View details <ArrowRight className="w-4 h-4 ml-1" />
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </>
-  )
-}
+  );
+};
 
-export default MyArtworks
+export default MyArtworks;

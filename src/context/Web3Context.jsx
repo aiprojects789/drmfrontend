@@ -80,7 +80,7 @@ export const Web3Provider = ({ children }) => {
       if (error.code === 4001) {
         toast.error('Connection rejected by user');
       } else {
-        toast.error(error.message || 'Connection failed');
+        // toast.error(error.message || 'Connection failed');
       }
       
       return false;
@@ -139,82 +139,75 @@ export const Web3Provider = ({ children }) => {
     }
   };
 
-  // // Enhanced gas estimation for different transaction types
-  // const estimateGasForTransaction = async (transactionData) => {
-  //   try {
-  //     // Different gas limits for different transaction types
-  //     const transactionType = transactionData.data 
-  //       ? (transactionData.data.includes('0x') && transactionData.data.length > 100 ? 'CONTRACT_INTERACTION' : 'LICENSE_TRANSACTION')
-  //       : 'ETH_TRANSFER';
-
-  //     const defaultGasLimits = {
-  //       'ETH_TRANSFER': 21000, // Simple ETH transfer
-  //       'LICENSE_TRANSACTION': 120000, // License transactions (medium complexity)
-  //       'CONTRACT_INTERACTION': 250000, // Complex contract interactions
-  //       'ARTWORK_REGISTRATION': 300000, // Artwork registration (most complex)
-  //     };
-
-  //     let gasEstimate;
-      
-  //     try {
-  //       // Try to estimate gas first - convert all values to proper types
-  //       const estimateParams = {
-  //         from: transactionData.from,
-  //         to: transactionData.to,
-  //         value: transactionData.value || '0',
-  //         data: transactionData.data || '0x'
-  //       };
-
-  //       // Convert value to hex if it's a string number
-  //       if (typeof estimateParams.value === 'string' && !estimateParams.value.startsWith('0x')) {
-  //         estimateParams.value = web3.utils.toHex(estimateParams.value);
-  //       }
-
-  //       gasEstimate = await web3.eth.estimateGas(estimateParams);
-  //     } catch (estimationError) {
-  //       console.warn('Gas estimation failed, using default:', estimationError);
-  //       gasEstimate = defaultGasLimits[transactionType] || 300000;
-  //     }
-
-  //     // Add buffer based on transaction type
-  //     const bufferMultipliers = {
-  //       'ETH_TRANSFER': 1.1, // 10% buffer
-  //       'LICENSE_TRANSACTION': 1.3, // 30% buffer
-  //       'CONTRACT_INTERACTION': 1.5, // 50% buffer
-  //       'ARTWORK_REGISTRATION': 1.5, // 50% buffer
-  //     };
-
-  //     // Convert gasEstimate to number for multiplication, then back to BigInt if needed
-  //     const gasEstimateNum = typeof gasEstimate === 'bigint' 
-  //       ? Number(gasEstimate) 
-  //       : parseInt(gasEstimate);
-      
-  //     const gasWithBuffer = Math.floor(gasEstimateNum * (bufferMultipliers[transactionType] || 1.3));
-      
-  //     console.log(`Gas estimate for ${transactionType}: ${gasEstimate}, With buffer: ${gasWithBuffer}`);
-  //     return gasWithBuffer;
-
-  //   } catch (error) {
-  //     console.error('Gas estimation failed:', error);
-  //     return 300000; // Safe default
-  //   }
-  // };
-
-  // Simple gas estimation function (optional - can be used if needed)
+  // Enhanced gas estimation for different transaction types
   const estimateGasForTransaction = async (transactionData) => {
     try {
-      // For license transactions, use a higher gas limit
-      if (transactionData.data && transactionData.data.length > 100) {
-        return 400000; // Increased gas limit for license transactions
+      // Determine transaction type based on data length and content
+      let transactionType = 'ETH_TRANSFER';
+      
+      if (transactionData.data && transactionData.data !== '0x') {
+        if (transactionData.data.length > 500) {
+          transactionType = 'ARTWORK_REGISTRATION'; // Most complex
+        } else if (transactionData.data.length > 200) {
+          transactionType = 'LICENSE_TRANSACTION'; // Medium complexity
+        } else {
+          transactionType = 'CONTRACT_INTERACTION'; // Simple contract call
+        }
       }
-      return 21000; // Standard for ETH transfers
+
+      const defaultGasLimits = {
+        'ETH_TRANSFER': 21000, // Simple ETH transfer
+        'LICENSE_TRANSACTION': 150000, // License transactions
+        'CONTRACT_INTERACTION': 100000, // Other contract interactions
+        'ARTWORK_REGISTRATION': 300000, // Artwork registration (most complex)
+      };
+
+      let gasEstimate;
+      
+      try {
+        // Try to estimate gas first
+        const estimateParams = {
+          from: transactionData.from,
+          to: transactionData.to,
+          value: transactionData.value || '0',
+          data: transactionData.data || '0x'
+        };
+
+        // Convert value to hex if it's a string number
+        if (typeof estimateParams.value === 'string' && !estimateParams.value.startsWith('0x')) {
+          estimateParams.value = web3.utils.toHex(web3.utils.toWei(estimateParams.value, 'ether'));
+        }
+
+        gasEstimate = await web3.eth.estimateGas(estimateParams);
+      } catch (estimationError) {
+        console.warn('Gas estimation failed, using default:', estimationError);
+        gasEstimate = defaultGasLimits[transactionType] || 300000;
+      }
+
+      // Add buffer based on transaction type
+      const bufferMultipliers = {
+        'ETH_TRANSFER': 1.1, // 10% buffer
+        'LICENSE_TRANSACTION': 1.3, // 30% buffer
+        'CONTRACT_INTERACTION': 1.2, // 20% buffer
+        'ARTWORK_REGISTRATION': 1.5, // 50% buffer
+      };
+
+      const gasEstimateNum = typeof gasEstimate === 'bigint' 
+        ? Number(gasEstimate) 
+        : parseInt(gasEstimate);
+      
+      const gasWithBuffer = Math.floor(gasEstimateNum * (bufferMultipliers[transactionType] || 1.3));
+      
+      console.log(`Gas estimate for ${transactionType}: ${gasEstimate}, With buffer: ${gasWithBuffer}`);
+      return gasWithBuffer;
+
     } catch (error) {
       console.error('Gas estimation failed:', error);
-      return 400000; // Safe default for license transactions
+      return 300000; // Safe default
     }
   };
 
-  // Get optimized gas prices for testnet - SIMPLIFIED VERSION
+  // Get optimized gas prices for testnet
   const getOptimizedGasPrices = async () => {
     try {
       // For testnets, use simple and reliable gas pricing
@@ -232,15 +225,8 @@ export const Web3Provider = ({ children }) => {
           gasPriceValue = gasPrice;
         }
         
-        // Add 50% buffer for testnet reliability
-        const bufferedGasPrice = Math.floor(gasPriceValue * 1.5);
-        
-        console.log('Gas price:', {
-          original: gasPriceValue,
-          buffered: bufferedGasPrice,
-          originalGwei: web3.utils.fromWei(gasPriceValue.toString(), 'gwei'),
-          bufferedGwei: web3.utils.fromWei(bufferedGasPrice.toString(), 'gwei')
-        });
+        // Add 20% buffer for testnet reliability
+        const bufferedGasPrice = Math.floor(gasPriceValue * 1.2);
         
         return {
           gasPrice: bufferedGasPrice.toString()
@@ -308,6 +294,7 @@ export const Web3Provider = ({ children }) => {
     }
   };
 
+  // Main sendTransaction function - compatible with all components
   const sendTransaction = async (transactionData) => {
     if (!web3 || !account) {
       throw new Error('Web3 not initialized or account not connected');
@@ -316,31 +303,34 @@ export const Web3Provider = ({ children }) => {
     const toastId = toast.loading('Preparing transaction...');
 
     try {
+      // Validate transaction data
+      if (!transactionData.to || !web3.utils.isAddress(transactionData.to)) {
+        throw new Error('Invalid recipient address');
+      }
+
       // Get optimized gas prices
       const gasPrices = await getOptimizedGasPrices();
       
-      // Use appropriate gas limit based on transaction type
-      let gasLimit = transactionData.gas || 400000; // Use provided gas or default
-      
-      // For artwork registration, use higher gas limit
-      if (transactionData.data && transactionData.data.includes('registerArtwork')) {
-        gasLimit = 500000; // Higher gas for registration
-      }
-
-      if (transactionData.data && transactionData.data.includes('token')) {
-        // Sale transactions might need more gas
-        transactionData.gas = transactionData.gas || 100000;
-      }
+      // Estimate gas with proper buffer
+      const gasLimit = await estimateGasForTransaction(transactionData);
 
       // Prepare transaction parameters
       const txParams = {
-        from: transactionData.from,
+        from: account,
         to: transactionData.to,
         value: transactionData.value || '0',
         data: transactionData.data || '0x',
         gas: web3.utils.toHex(gasLimit),
-        ...gasPrices
+        gasPrice: gasPrices.gasPrice
       };
+
+      // Convert value to wei if it's in ETH
+      if (typeof txParams.value === 'string' && !txParams.value.startsWith('0x')) {
+        if (txParams.value.includes('.')) {
+          // It's an ETH amount, convert to wei
+          txParams.value = web3.utils.toWei(txParams.value, 'ether');
+        }
+      }
 
       console.log('Transaction parameters:', {
         ...txParams,
@@ -349,24 +339,16 @@ export const Web3Provider = ({ children }) => {
         gasLimit: gasLimit
       });
 
-      // Check balance - use BigInt for accurate calculations
+      // Check balance
       const balanceWei = await web3.eth.getBalance(account);
       const balanceBigInt = typeof balanceWei === 'bigint' ? balanceWei : BigInt(balanceWei);
       
-      // Calculate total cost using BigInt
-      const valueBigInt = BigInt(txParams.value || '0');
-      const gasPriceBigInt = BigInt(txParams.gasPrice || '0');
+      const valueBigInt = BigInt(txParams.value);
+      const gasPriceBigInt = BigInt(txParams.gasPrice);
       const gasLimitBigInt = BigInt(gasLimit);
       
       const totalCost = valueBigInt + (gasLimitBigInt * gasPriceBigInt);
       
-      console.log('Balance check (Wei):', {
-        balance: balanceBigInt.toString(),
-        value: valueBigInt.toString(),
-        gasCost: (gasLimitBigInt * gasPriceBigInt).toString(),
-        totalCost: totalCost.toString()
-      });
-
       if (balanceBigInt < totalCost) {
         const shortfallEth = web3.utils.fromWei((totalCost - balanceBigInt).toString(), 'ether');
         throw new Error(`Insufficient funds. Need ${parseFloat(shortfallEth).toFixed(6)} more ETH.`);
@@ -374,10 +356,10 @@ export const Web3Provider = ({ children }) => {
 
       toast.loading('Sending transaction... (This may take 1-2 minutes)', { id: toastId });
 
-      // Send transaction with longer timeout for testnets
+      // Send transaction with timeout
       const sendPromise = web3.eth.sendTransaction(txParams);
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Transaction submission timeout')), 120000) // 2 minutes timeout
+        setTimeout(() => reject(new Error('Transaction submission timeout')), 120000)
       );
 
       const receipt = await Promise.race([sendPromise, timeoutPromise]);
@@ -387,15 +369,26 @@ export const Web3Provider = ({ children }) => {
         throw new Error('No transaction hash received');
       }
 
-      // Immediately return success - monitoring happens in background
+      // Add to pending transactions
+      setPendingTransactions(prev => new Set(prev).add(transactionHash));
+
       toast.success('Transaction submitted successfully!', { id: toastId });
 
       // Start monitoring in background (non-blocking)
       monitorTransaction(transactionHash)
         .then(result => {
+          // Remove from pending transactions
+          setPendingTransactions(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(transactionHash);
+            return newSet;
+          });
+
           if (result.success) {
             console.log('✅ Transaction confirmed on chain:', transactionHash);
             toast.success('Transaction confirmed on blockchain!');
+            // Update balance after successful transaction
+            updateBalance(account);
           } else {
             console.warn('⚠️ Transaction failed or timeout:', result);
             toast.error('Transaction confirmation failed or timed out');
@@ -403,6 +396,11 @@ export const Web3Provider = ({ children }) => {
         })
         .catch(monitorError => {
           console.error('❌ Transaction monitoring failed:', monitorError);
+          setPendingTransactions(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(transactionHash);
+            return newSet;
+          });
         });
 
       return { hash: transactionHash, receipt };
@@ -420,7 +418,8 @@ export const Web3Provider = ({ children }) => {
         'out of gas': 'Transaction requires more gas. Please try again.',
         'gas': 'Gas estimation failed. Please try again.',
         'network': 'Network error. Please check your connection.',
-        'nonce': 'Nonce error. Please try again.'
+        'nonce': 'Nonce error. Please try again.',
+        'invalid recipient address': 'Invalid contract address. Please contact support.'
       };
 
       const errorMessage = Object.entries(errorMessages).find(([key]) => 
@@ -431,118 +430,6 @@ export const Web3Provider = ({ children }) => {
     }
   };
 
-    // const sendTransaction = async (transactionData) => {
-    //   if (!web3 || !account) {
-    //     throw new Error('Web3 not initialized or account not connected');
-    //   }
-
-    //   const toastId = toast.loading('Preparing transaction...');
-
-    //   try {
-    //     // Validate transaction data
-    //     if (!transactionData.to || !web3.utils.isAddress(transactionData.to)) {
-    //       throw new Error('Invalid recipient address in transaction data');
-    //     }
-
-    //     // Get optimized gas prices
-    //     const gasPrices = await getOptimizedGasPrices();
-        
-    //     // Use appropriate gas limit
-    //     let gasLimit = transactionData.gas || 50000;
-        
-    //     // Validate and format transaction parameters
-    //     const txParams = {
-    //       from: account, // Always use the connected account as sender
-    //       to: transactionData.to,
-    //       value: transactionData.value || '0',
-    //       data: transactionData.data || '0x',
-    //       gas: web3.utils.toHex(gasLimit),
-    //     };
-
-    //     // Add gas pricing
-    //     if (gasPrices.maxFeePerGas && gasPrices.maxPriorityFeePerGas) {
-    //       txParams.maxFeePerGas = gasPrices.maxFeePerGas;
-    //       txParams.maxPriorityFeePerGas = gasPrices.maxPriorityFeePerGas;
-    //     } else {
-    //       txParams.gasPrice = gasPrices.gasPrice;
-    //     }
-
-    //     console.log('Final transaction parameters:', txParams);
-
-    //     // Check balance
-    //     const balanceWei = await web3.eth.getBalance(account);
-    //     const balanceBigInt = BigInt(balanceWei);
-        
-    //     const valueBigInt = BigInt(txParams.value || '0');
-    //     const gasPriceBigInt = BigInt(txParams.gasPrice || '0');
-    //     const gasLimitBigInt = BigInt(gasLimit);
-        
-    //     const totalCost = valueBigInt + (gasLimitBigInt * gasPriceBigInt);
-        
-    //     if (balanceBigInt < totalCost) {
-    //       const shortfallEth = web3.utils.fromWei((totalCost - balanceBigInt).toString(), 'ether');
-    //       throw new Error(`Insufficient funds. Need ${parseFloat(shortfallEth).toFixed(6)} more ETH.`);
-    //     }
-
-    //     toast.loading('Sending transaction... (This may take 1-2 minutes)', { id: toastId });
-
-    //     // Send transaction
-    //     const sendPromise = web3.eth.sendTransaction(txParams);
-    //     const timeoutPromise = new Promise((_, reject) => 
-    //       setTimeout(() => reject(new Error('Transaction submission timeout')), 120000)
-    //     );
-
-    //     const receipt = await Promise.race([sendPromise, timeoutPromise]);
-    //     const transactionHash = receipt.transactionHash || receipt;
-
-    //     if (!transactionHash) {
-    //       throw new Error('No transaction hash received');
-    //     }
-
-    //     toast.success('Transaction submitted successfully!', { id: toastId });
-
-    //     // Start monitoring in background
-    //     monitorTransaction(transactionHash)
-    //       .then(result => {
-    //         if (result.success) {
-    //           console.log('✅ Transaction confirmed on chain:', transactionHash);
-    //           toast.success('Transaction confirmed on blockchain!');
-    //         } else {
-    //           console.warn('⚠️ Transaction failed or timeout:', result);
-    //           toast.error('Transaction confirmation failed or timed out');
-    //         }
-    //       })
-    //       .catch(monitorError => {
-    //         console.error('❌ Transaction monitoring failed:', monitorError);
-    //       });
-
-    //     return { hash: transactionHash, receipt };
-
-    //   } catch (error) {
-    //     toast.dismiss(toastId);
-    //     console.error('Transaction failed:', error);
-
-    //     // User-friendly error messages
-    //     const errorMessages = {
-    //       'invalid recipient address': 'Invalid recipient address. Please contact support.',
-    //       'invalid parameters': 'Invalid transaction parameters. Please try again.',
-    //       'timeout': 'Transaction timed out. Please try again.',
-    //       'insufficient funds': 'Insufficient funds for transaction. Please add ETH to your wallet.',
-    //       'rejected': 'Transaction rejected by user.',
-    //       'revert': 'Transaction reverted. Check contract requirements.',
-    //       'out of gas': 'Transaction requires more gas. Please try again.',
-    //       'gas': 'Gas estimation failed. Please try again.',
-    //       'network': 'Network error. Please check your connection.',
-    //       'nonce': 'Nonce error. Please try again.'
-    //     };
-
-    //     const errorMessage = Object.entries(errorMessages).find(([key]) => 
-    //       error.message.toLowerCase().includes(key)
-    //     )?.[1] || error.message || 'Transaction failed';
-
-    //     throw new Error(errorMessage);
-    //   }
-    // };
   // Check transaction status
   const checkTransactionStatus = async (transactionHash) => {
     try {
@@ -561,9 +448,11 @@ export const Web3Provider = ({ children }) => {
           setAccount(null);
           setConnected(false);
           setBalance('0');
+          // toast('Wallet disconnected');
         } else {
           setAccount(accounts[0]);
           updateBalance(accounts[0]);
+          toast('Wallet account changed'); // Changed from toast.info()
         }
       };
 
@@ -571,6 +460,8 @@ export const Web3Provider = ({ children }) => {
         setChainId(newChainId);
         if (newChainId !== EXPECTED_CHAIN_ID) {
           toast.error('Please switch to Sepolia testnet');
+        } else {
+          toast.success('Connected to Sepolia testnet');
         }
       };
 
@@ -606,6 +497,13 @@ export const Web3Provider = ({ children }) => {
     }
   }, []);
 
+  const disconnectWallet = () => {
+    setAccount(null);
+    setConnected(false);
+    setBalance('0');
+    // toast('Wallet disconnected');
+  };
+
   return (
     <Web3Context.Provider value={{
       web3,
@@ -617,11 +515,7 @@ export const Web3Provider = ({ children }) => {
       connecting,
       pendingTransactions: Array.from(pendingTransactions),
       connectWallet,
-      disconnectWallet: () => {
-        setAccount(null);
-        setConnected(false);
-        setBalance('0');
-      },
+      disconnectWallet,
       switchToSepolia,
       sendTransaction,
       checkTransactionStatus,

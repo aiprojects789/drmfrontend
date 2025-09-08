@@ -1,41 +1,124 @@
-import React, { useState } from 'react';
-import { DollarSign, ArrowRight, CreditCard, Wallet } from 'lucide-react';
-import { Badge, Card,Button } from '@mui/material';
+import React, { useState, useEffect } from 'react';
+import { DollarSign, ArrowRight, CreditCard, Wallet, TrendingUp, Clock, ArrowUpRight } from 'lucide-react';
+import { Badge, Card, Button } from '@mui/material';
+import { useWeb3 } from '../../../context/Web3Context';
+import { useAuth } from '../../../context/AuthContext';
+import { transactionsAPI, artworksAPI } from '../../../services/api';
+import LoadingSpinner from '../../../components/common/LoadingSpinner';
+import toast from 'react-hot-toast';
 
+const Wallets = () => {
+  const { account, isCorrectNetwork } = useWeb3();
+  const { isAuthenticated, isWalletConnected } = useAuth();
 
-const Wallets= () => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [transactions, setTransactions] = useState([]);
+  const [artworks, setArtworks] = useState([]);
+  const [royaltyEarnings, setRoyaltyEarnings] = useState('0.0000');
+  const [error, setError] = useState(null);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
-  
-  const transactions = [
-    {
-      id: 'tx1',
-      type: 'license',
-      amount: 50,
-      date: '2023-11-15',
-      description: 'License purchase for "ArtWork"',
-      status: 'completed'
-    },
-    {
-      id: 'tx2',
-      type: 'withdrawal',
-      amount: -100,
-      date: '2023-11-10',
-      description: 'Withdrawal to bank account',
-      status: 'completed'
-    },
-    
-  ];
+
+  // Fetch transactions and artworks
+  useEffect(() => {
+    if (!isAuthenticated || !account) return;
+
+    const fetchData = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        console.log(`🔄 Fetching royalty data for account: ${account}`);
+
+        // Fetch all data in parallel
+        const [txsRes, artsRes, earningsRes] = await Promise.allSettled([
+          transactionsAPI.getByUser(account),
+          artworksAPI.getByCreator(account),
+          transactionsAPI.getByUser(account, { type: 'ROYALTY' })
+        ]);
+
+        // Handle transactions
+        if (txsRes.status === 'fulfilled') {
+          setTransactions(txsRes.value.data || []);
+        } else {
+          console.warn('Transactions fetch failed:', txsRes.reason);
+          setTransactions([]);
+        }
+
+        // Handle artworks
+        if (artsRes.status === 'fulfilled') {
+          setArtworks(artsRes.value.data || []);
+        } else {
+          console.warn('Artworks fetch failed:', artsRes.reason);
+          setArtworks([]);
+        }
+
+        // Handle royalty earnings
+        if (earningsRes.status === 'fulfilled') {
+          const royaltyTransactions = earningsRes.value.data || [];
+          const total = royaltyTransactions.reduce((sum, tx) => {
+            const value = parseFloat(tx?.value || 0);
+            return sum + (isNaN(value) ? 0 : value);
+          }, 0);
+          setRoyaltyEarnings(total.toFixed(4));
+        } else {
+          console.warn('Royalty transactions fetch failed:', earningsRes.reason);
+          setRoyaltyEarnings('0.0000');
+        }
+        
+      } catch (error) {
+        console.error('❌ Error fetching royalty data:', error);
+        setError(`Failed to load royalty data: ${error.message}`);
+        toast.error('Failed to load royalty data');
+        
+        setTransactions([]);
+        setArtworks([]);
+        setRoyaltyEarnings('0.0000');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [isAuthenticated, account]);
 
   const handleWithdraw = () => {
     setIsWithdrawing(true);
     // Simulate withdrawal process
     setTimeout(() => {
       setIsWithdrawing(false);
+      toast.success('Withdrawal request submitted successfully!');
     }, 2000);
   };
 
+  // Format address helper
+  const formatAddress = (address) => {
+    if (!address || typeof address !== 'string') return 'Invalid address';
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  };
+
+  // Format transaction type for display
+  const formatTransactionType = (type) => {
+    return type?.replace('_', ' ') || 'Unknown';
+  };
+
+  // Redirect if not authenticated
+  if (isAuthenticated && !isWalletConnected) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg p-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Wallet Connection Required
+          </h2>
+          <p className="text-gray-600 mb-6">
+            Please connect your MetaMask wallet to view royalty information.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Wallet & Royalties</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -43,84 +126,166 @@ const Wallets= () => {
         </p>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Balance Card */}
+        {/* Balance and Stats Cards */}
         <div className="lg:col-span-2">
-          <Card>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <Card className="p-4">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-green-100 mr-4">
+                  <TrendingUp className="w-5 h-5 text-green-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-500">Total Royalties</p>
+                  <p className="text-xl font-semibold text-gray-900">
+                    {isLoading ? '...' : `${royaltyEarnings} ETH`}
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-blue-100 mr-4">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-500">Artworks</p>
+                  <p className="text-xl font-semibold text-gray-900">
+                    {isLoading ? '...' : artworks.length}
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="flex items-center">
+                <div className="p-3 rounded-full bg-purple-100 mr-4">
+                  <DollarSign className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-500">Transactions</p>
+                  <p className="text-xl font-semibold text-gray-900">
+                    {isLoading ? '...' : transactions.length}
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </div>
+
+          {/* Balance Card */}
+          <Card className="mb-6">
             <div className="p-6">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-medium text-gray-900">Available Balance</h2>
                   <p className="mt-1 text-sm text-gray-500">Ready to withdraw</p>
                 </div>
-                <div className="text-3xl font-bold text-gray-900">$350.00</div>
+                <div className="text-3xl font-bold text-gray-900">
+                  {isLoading ? '...' : `${royaltyEarnings} ETH`}
+                </div>
               </div>
               <div className="mt-6">
                 <Button
+                  variant="contained"
                   color="secondary"
-                  variant='contained'
                   onClick={handleWithdraw}
-                  isLoading={isWithdrawing}
-                  leftIcon={<DollarSign className="h-5 w-5" />}
+                  disabled={isWithdrawing || parseFloat(royaltyEarnings) <= 0}
+                  startIcon={<DollarSign className="h-5 w-5" />}
                 >
-                  Withdraw Funds
+                  {isWithdrawing ? 'Processing...' : 'Withdraw Funds'}
                 </Button>
               </div>
             </div>
           </Card>
 
           {/* Transaction History */}
-          <div className="mt-6">
-            <Card>
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Transaction History</h3>
+          <Card>
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">Transaction History</h3>
+            </div>
+            
+            {isLoading ? (
+              <div className="flex justify-center p-12">
+                <LoadingSpinner size="medium" />
               </div>
+            ) : transactions.length === 0 ? (
+              <div className="text-center p-12">
+                <Clock className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions yet</h3>
+                <p className="text-gray-500">
+                  Once you register artworks or receive royalties, they'll appear here.
+                </p>
+              </div>
+            ) : (
               <div className="divide-y divide-gray-200">
                 {transactions.map((tx) => (
-                  <div key={tx.id} className="px-6 py-4">
+                  <div key={tx.tx_hash || tx.id} className="px-6 py-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center">
                         <div className={`
                           p-2 rounded-full 
-                          ${tx.type === 'license' ? 'bg-green-100' : 'bg-blue-100'}
+                          ${tx.transaction_type === 'ROYALTY' ? 'bg-green-100' : 
+                            tx.transaction_type === 'SALE' ? 'bg-blue-100' : 
+                            'bg-gray-100'}
                         `}>
-                          {tx.type === 'license' ? (
-                            <CreditCard className={`h-5 w-5 ${
-                              tx.type === 'license' ? 'text-green-600' : 'text-blue-600'
-                            }`} />
+                          {tx.transaction_type === 'ROYALTY' ? (
+                            <TrendingUp className={`h-5 w-5 text-green-600`} />
+                          ) : tx.transaction_type === 'SALE' ? (
+                            <DollarSign className="h-5 w-5 text-blue-600" />
                           ) : (
-                            <ArrowRight className="h-5 w-5 text-blue-600" />
+                            <CreditCard className="h-5 w-5 text-gray-600" />
                           )}
                         </div>
                         <div className="ml-4">
-                          <p className="text-sm font-medium text-gray-900">{tx.description}</p>
-                          <p className="text-sm text-gray-500">{tx.date}</p>
+                          <p className="text-sm font-medium text-gray-900">
+                            {formatTransactionType(tx.transaction_type)}
+                            {tx.metadata?.token_id && ` - Artwork #${tx.metadata.token_id}`}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : 'N/A'}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center">
                         <span className={`text-sm font-medium ${
-                          tx.amount > 0 ? 'text-green-600' : 'text-blue-600'
+                          tx.transaction_type === 'ROYALTY' ? 'text-green-600' : 
+                          tx.value && parseFloat(tx.value) > 0 ? 'text-blue-600' : 'text-gray-500'
                         }`}>
-                          {tx.amount > 0 ? '+' : ''}{tx.amount.toFixed(2)} USD
+                          {tx.value ? `${parseFloat(tx.value).toFixed(4)} ETH` : 'N/A'}
                         </span>
-                        <Badge
-                          color="secondary"
-                          size="sm"
-                          className="mx-14 opacity-50"
-                          badgeContent={tx.status}
-                        />
+                        {tx.tx_hash && (
+                          <a 
+                            href={`https://sepolia.etherscan.io/tx/${tx.tx_hash}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="ml-3 text-purple-600 hover:text-purple-800"
+                            title="View on Etherscan"
+                          >
+                            <ArrowUpRight className="w-4 h-4" />
+                          </a>
+                        )}
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-            </Card>
-          </div>
+            )}
+          </Card>
         </div>
 
-        {/* Payment Methods */}
+        {/* Payment Methods and Info */}
         <div>
-          <Card>
+          {/* Payment Methods */}
+          <Card className="mb-6">
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-medium text-gray-900">Payment Methods</h3>
             </div>
@@ -130,7 +295,9 @@ const Wallets= () => {
                 <div className="flex items-center p-4 bg-gray-50 rounded-lg">
                   <Wallet className="h-5 w-5 text-gray-400" />
                   <div className="ml-3">
-                   
+                    <p className="text-sm font-medium text-gray-900">
+                      {account ? formatAddress(account) : 'Not connected'}
+                    </p>
                     <p className="text-xs text-gray-500">Ethereum</p>
                   </div>
                 </div>
@@ -153,10 +320,37 @@ const Wallets= () => {
                 <Button
                   variant="outlined"
                   fullWidth
-                  color='secondary'
+                  color="secondary"
                 >
                   Add Payment Method
                 </Button>
+              </div>
+            </div>
+          </Card>
+
+          {/* Royalty Information */}
+          <Card>
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900">How Royalties Work</h3>
+            </div>
+            <div className="p-6">
+              <div className="space-y-3 text-sm text-gray-600">
+                <div className="flex items-start">
+                  <TrendingUp className="w-4 h-4 text-blue-600 mt-0.5 mr-2 flex-shrink-0" />
+                  <span>Earn automatic royalties on every resale of your artwork</span>
+                </div>
+                <div className="flex items-start">
+                  <DollarSign className="w-4 h-4 text-blue-600 mt-0.5 mr-2 flex-shrink-0" />
+                  <span>Set your royalty percentage when registering artwork (up to 20%)</span>
+                </div>
+                <div className="flex items-start">
+                  <Clock className="w-4 h-4 text-blue-600 mt-0.5 mr-2 flex-shrink-0" />
+                  <span>Royalties are paid instantly and recorded on blockchain</span>
+                </div>
+                <div className="flex items-start">
+                  <CreditCard className="w-4 h-4 text-blue-600 mt-0.5 mr-2 flex-shrink-0" />
+                  <span>Withdraw your earnings to your bank account or keep in wallet</span>
+                </div>
               </div>
             </div>
           </Card>

@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
-import { Wallet, AlertCircle, CheckCircle } from 'lucide-react';
+import { Wallet, AlertCircle, CheckCircle, Link as LinkIcon } from 'lucide-react';
 import { Button } from "@mui/material";
+import toast from 'react-hot-toast';
 import { useWeb3 } from '../context/Web3Context';
 import { useAuth } from '../context/AuthContext';
 
@@ -10,32 +11,115 @@ const WalletButton = () => {
     connecting, 
     account, 
     balance, 
-    networkName, 
-    connectWallet, 
+    connectWallet: web3ConnectWallet, 
     disconnectWallet,
     isCorrectNetwork,
     switchToSepolia 
   } = useWeb3();
 
-  const { logout } = useAuth();
+  const { 
+    isAuthenticated, 
+    isWalletConnected,
+    connectWallet: authConnectWallet,
+    loading,
+    user
+  } = useAuth();
 
-  // 👇 MetaMask detection check
+  // Debug the wallet connection state
   useEffect(() => {
-    if (typeof window.ethereum !== "undefined") {
-      console.log("✅ MetaMask detected:", window.ethereum);
-      console.log("isMetaMask:", window.ethereum.isMetaMask);
-    } else {
-      console.log("❌ MetaMask not installed");
+    console.log('WalletButton Debug State:', {
+      isAuthenticated,
+      connected,
+      account: account ? `${account.substring(0, 6)}...${account.substring(account.length - 4)}` : null,
+      isWalletConnected,
+      userWalletAddress: user?.wallet_address,
+      addressMatch: user?.wallet_address?.toLowerCase() === account?.toLowerCase(),
+      fullAccount: account,
+      fullUserWallet: user?.wallet_address
+    });
+  }, [isAuthenticated, connected, account, isWalletConnected, user]);
+
+  // Handle the wallet connection process
+  const handleConnectWallet = async () => {
+    console.log('🔄 WalletButton: Connect wallet clicked');
+    
+    if (!isAuthenticated) {
+      console.log('❌ User not authenticated');
+      toast.error('Please log in first to connect your wallet');
+      return;
     }
-  }, []);
 
- 
-const handleDisconnect = () => {
-  disconnectWallet();  // 👈 Web3 se bhi disconnect
-  logout();            // 👈 Auth se bhi logout
-};
+    try {
+      // Step 1: Connect to MetaMask first if not connected
+      if (!connected) {
+        console.log('Step 1: Connecting to MetaMask...');
+        const success = await web3ConnectWallet();
+        if (!success) {
+          console.log('❌ MetaMask connection failed');
+          // toast.error('Failed to connect MetaMask');
+          return;
+        }
+        console.log('✅ MetaMask connected successfully');
+        
+        // Wait for the account state to update
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
 
-  if (connected && account) {
+      // Step 2: Get current account after connection
+      const currentAccount = window.ethereum ? (await window.ethereum.request({ method: 'eth_accounts' }))[0] : account;
+      
+      if (!currentAccount) {
+        console.log('❌ No account available after MetaMask connection');
+        // toast.error('Failed to get wallet account. Please try again.');
+        return;
+      }
+
+      console.log('Step 2: Linking wallet to account:', currentAccount);
+      
+      // Step 3: Link wallet to user account
+      const result = await authConnectWallet();
+      
+      if (result && !result.error) {
+        console.log('✅ Wallet linked to account successfully');
+        toast.success('Wallet connected and linked successfully!');
+      } else {
+        console.log('❌ Wallet linking failed:', result?.error);
+        // toast.error('Failed to link wallet: ' + (result?.error || 'Unknown error'));
+      }
+      
+    } catch (error) {
+      console.error('❌ Error in wallet connection flow:', error);
+      // toast.error('Failed to connect wallet: ' + error.message);
+    }
+  };
+
+  const handleDisconnect = () => {
+    console.log('🔄 Disconnecting wallet...');
+    disconnectWallet();
+  };
+
+  // Don't show if user is not authenticated
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  // Check if wallet is fully connected and linked (case-insensitive comparison)
+  const isFullyConnected = connected && 
+                          account && 
+                          user?.wallet_address && 
+                          user.wallet_address.toLowerCase() === account.toLowerCase();
+
+  console.log('Connection Status Check:', {
+    connected,
+    hasAccount: !!account,
+    hasUserWallet: !!user?.wallet_address,
+    addressesMatch: user?.wallet_address?.toLowerCase() === account?.toLowerCase(),
+    isFullyConnected,
+    isWalletConnected
+  });
+
+  // User is authenticated and wallet is fully connected and linked
+  if (isFullyConnected) {
     return (
       <div className="flex items-center space-x-2">
         {/* Network Status */}
@@ -43,7 +127,7 @@ const handleDisconnect = () => {
           {isCorrectNetwork ? (
             <div className="flex items-center space-x-1 text-green-600">
               <CheckCircle className="w-4 h-4" />
-              <span className="text-xs">{networkName}</span>
+              <span className="text-xs">Sepolia</span>
             </div>
           ) : (
             <button
@@ -56,14 +140,14 @@ const handleDisconnect = () => {
           )}
         </div>
 
-        {/* Wallet Info */}
-        <div className="flex items-center space-x-2 bg-gray-50 px-3 py-2 rounded-lg">
-          <Wallet className="w-4 h-4 text-purple-600" />
+        {/* Connected Wallet Info */}
+        <div className="flex items-center space-x-2 bg-green-50 border border-green-200 px-3 py-2 rounded-lg">
+          <CheckCircle className="w-4 h-4 text-green-600" />
           <div className="flex flex-col">
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-gray-700 font-medium">
               {account.substring(0, 6)}...{account.substring(account.length - 4)}
             </span>
-            <span className="text-xs text-gray-500">{balance} ETH</span>
+            <span className="text-xs text-gray-500">{balance || '0'} ETH</span>
           </div>
         </div>
 
@@ -78,17 +162,35 @@ const handleDisconnect = () => {
     );
   }
 
+  // User is authenticated but wallet not fully connected/linked yet
   return (
-    <Button
-      onClick={connectWallet}
-      disabled={connecting}
-      variant="contained"
-      color="primary"
-      startIcon={<Wallet />}
-      size="small"
-    >
-      {connecting ? "Connecting..." : "Connect Wallet"}
-    </Button>
+    <div className="flex items-center space-x-2">
+      {/* Show current status if wallet is connected to MetaMask but not linked to account */}
+      {connected && account && user?.wallet_address !== account && (
+        <div className="flex items-center space-x-2 bg-yellow-50 border border-yellow-200 px-3 py-2 rounded-lg">
+          <AlertCircle className="w-4 h-4 text-yellow-600" />
+          <div className="flex flex-col">
+            <span className="text-xs text-gray-700">
+              {account.substring(0, 6)}...{account.substring(account.length - 4)}
+            </span>
+            <span className="text-xs text-yellow-600">Not Linked</span>
+          </div>
+        </div>
+      )}
+
+      <Button
+        onClick={handleConnectWallet}
+        disabled={connecting || loading}
+        variant="contained"
+        color="primary"
+        startIcon={connected && !user?.wallet_address ? <LinkIcon /> : <Wallet />}
+        size="small"
+      >
+        {connecting ? "Connecting..." : 
+         loading ? "Linking..." :
+         (connected && !user?.wallet_address) ? "Link Wallet" : "Connect Wallet"}
+      </Button>
+    </div>
   );
 };
 

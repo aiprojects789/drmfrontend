@@ -1,12 +1,68 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, ChevronDown, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useForm } from 'react-hook-form';
+import { yupResolver } from '@hookform/resolvers/yup';
+import * as yup from 'yup';
+import { Upload, ChevronDown, X, AlertCircle, Palette, Percent } from 'lucide-react';
 import * as blazeface from '@tensorflow-models/blazeface';
 import * as tf from '@tensorflow/tfjs';
 import { Button, Input, InputLabel } from '@mui/material';
-import axios from 'axios';
-import { baseURL } from '../../../utils/backend_url';
+import { useWeb3 } from '../../../context/Web3Context';
+import { useAuth } from '../../../context/AuthContext';
+import { artworksAPI } from '../../../services/api';
+import LoadingSpinner from '../../../components/common/LoadingSpinner';
+import toast from 'react-hot-toast';
+import imageCompression from 'browser-image-compression';
 
-const UploadArtworks= () => {
+// Validation schema
+const schema = yup.object({
+  title: yup.string().required('Title is required').max(100, 'Title too long'),
+  description: yup.string().max(1000, 'Description too long'),
+  royalty_percentage: yup
+    .number()
+    .required('Royalty percentage is required')
+    .min(0, 'Royalty cannot be negative')
+    .max(2000, 'Royalty cannot exceed 20% (2000 basis points)')
+    .integer('Royalty must be a whole number'),
+  price: yup
+    .number()
+    .required('Price is required')
+    .min(0, 'Price cannot be negative'),
+  image: yup
+    .mixed()
+    .required('Image is required')
+    .test('fileSize', 'File too large (max 5MB)', value => {
+      if (!value) return false;
+      return value.size <= 5 * 1024 * 1024; // 5MB limit
+    })
+    .test('fileType', 'Unsupported file type', value => {
+      if (!value) return false;
+      return ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(value.type);
+    })
+    .test('dimensions', 'Image dimensions too large', async (value) => {
+      if (!value) return false;
+      
+      // Check image dimensions
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = function() {
+          // Max 4000px on longest side
+          resolve(Math.max(this.width, this.height) <= 4000);
+        };
+        img.onerror = function() {
+          resolve(false);
+        };
+        img.src = URL.createObjectURL(value);
+      });
+    })
+});
+
+const UploadArtworks = () => {
+  const navigate = useNavigate();
+  const { account, sendTransaction, isCorrectNetwork } = useWeb3();
+  const { isAuthenticated, isWalletConnected } = useAuth();
+
+  
   const licenseTermsOptions = [
     {
       id: 'license-1',
@@ -33,45 +89,49 @@ const UploadArtworks= () => {
       rights: ['Print', 'Digital display', 'Commercial use', 'Merchandise', 'Resale', 'Sublicensing']
     }
   ];
-const loyaltyPercentage=[
-  {
-    id:1,
-    percentage: '5%'
-  },
-  {
-    id:2,
-    percentage: '10%'
-  },
-  {
-    id:3,
-    percentage: '15%'
-  },
-  {
-    id:4,
-    percentage: '20%'
-  },
-  {
-    id:5,
-    percentage: '25%'
-  },
-  {
-    id:6,
-    percentage: '30%'
-  },
-]
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [price, setPrice] = useState('');
-  const [selectedLicense, setSelectedLicense] = useState(licenseTermsOptions[0].id);
-  const [selectedLoyalty, setSelectedLoyalty] = useState(loyaltyPercentage[1].id);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState(null);
+
+  const loyaltyPercentage = [
+    { id: 1, percentage: '5%', value: 500 },
+    { id: 2, percentage: '10%', value: 1000 },
+    { id: 3, percentage: '15%', value: 1500 },
+    { id: 4, percentage: '20%', value: 2000 },
+    { id: 5, percentage: '25%', value: 2500 },
+    { id: 6, percentage: '30%', value: 3000 }
+  ];
+
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [transactionHash, setTransactionHash] = useState(null);
+  const [debugInfo, setDebugInfo] = useState(null);
+  const [backendStatus, setBackendStatus] = useState(null);
+  const [balanceCheck, setBalanceCheck] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [currentStep, setCurrentStep] = useState('upload');
   const [model, setModel] = useState(null);
   const [error, setError] = useState(null);
+  const [uploadedFile, setUploadedFile] = useState(null);
+  const [selectedLicense, setSelectedLicense] = useState(licenseTermsOptions[0].id);
+  const [selectedLoyalty, setSelectedLoyalty] = useState(loyaltyPercentage[1].id);
 
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+    watch,
+    reset,
+    setValue,
+    trigger
+  } = useForm({
+    resolver: yupResolver(schema),
+    defaultValues: {
+      royalty_percentage: 1000,
+      price: '',
+      image: null
+    }
+  });
+
+  const image = watch('image');
+
+  // Load TensorFlow model
   useEffect(() => {
     const loadModel = async () => {
       await tf.ready();
@@ -81,7 +141,114 @@ const loyaltyPercentage=[
     loadModel();
   }, []);
 
- 
+  // Check backend status and wallet balance on component mount
+  useEffect(() => {
+    const checkBackendStatus = async () => {
+      if (!account) return;
+      
+      try {
+        const statusResponse = await artworksAPI.getBackendStatus();
+        setBackendStatus(statusResponse);
+        
+        const balanceResponse = await artworksAPI.getWalletBalance(account);
+        setBalanceCheck(balanceResponse);
+      } catch (error) {
+        console.error('Failed to check backend status:', error);
+        setBackendStatus({ 
+          status: 'error', 
+          message: 'Cannot connect to backend API' 
+        });
+      }
+    };
+
+    if (account && isAuthenticated) {
+      checkBackendStatus();
+    }
+  }, [account, isAuthenticated]);
+
+  // Generate preview when image changes
+  useEffect(() => {
+    if (image && image instanceof File) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreviewUrl(reader.result);
+      };
+      reader.readAsDataURL(image);
+    } else {
+      setPreviewUrl(null);
+    }
+  }, [image]);
+
+  const compressImage = async (file) => {
+    const options = {
+      maxSizeMB: 2, // Maximum file size in MB
+      maxWidthOrHeight: 2000, // Maximum width or height
+      useWebWorker: true,
+      fileType: 'image/jpeg', // Convert to JPEG for better compression
+    };
+
+    try {
+      const compressedFile = await imageCompression(file, options);
+      return compressedFile;
+    } catch (error) {
+      console.error('Image compression failed:', error);
+      throw new Error('Failed to compress image');
+    }
+  };
+
+  const validateTransactionData = (txData) => {
+    if (!txData) return ['Transaction data is null or undefined'];
+    
+    const errors = [];
+    if (!txData.to || txData.to === '0x0000000000000000000000000000000000000000') {
+      errors.push('Invalid contract address');
+    }
+    if (!txData.data || txData.data === '0x') {
+      errors.push('Invalid transaction data');
+    }
+    return errors;
+  };
+
+  const handleRegistrationError = (error) => {
+    console.error('Registration error:', error);
+    
+    if (error.message.includes('timeout')) {
+      toast.error('Transaction is taking longer than expected. It may still be processing.');
+    }
+    else if (error.message.includes('DEMO MODE')) {
+      toast.error('Backend Configuration Error', { duration: 10000 });
+    } 
+    else if (error.message.includes('missing revert data') || error.code === 'CALL_EXCEPTION') {
+      toast.error('Smart Contract Error: Contract may not be deployed correctly', { duration: 8000 });
+    }
+    else if (error.message.includes('Network Error') || error.message.includes('CONNECTION_ERROR')) {
+      toast.error('Network connection issue - check if backend can reach Sepolia RPC');
+    }
+    else if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+      toast.error('Cannot connect to backend server');
+    } 
+    else if (error.response?.status === 404) {
+      toast.error('API endpoint not found');
+    } 
+    else if (error.response?.status === 500) {
+      toast.error('Backend server error - check server logs');
+    } 
+    else if (error.code === 4001) {
+      toast.error('Transaction cancelled by user');
+    } 
+    else if (error.message.includes('insufficient funds')) {
+      toast.error('Insufficient funds for gas fees');
+    }
+    else if (error.message.includes('nonce')) {
+      toast.error('Transaction sequence error. Please try again in a moment.');
+    }
+    else if (error.response?.data?.detail) {
+      toast.error(`API error: ${error.response.data.detail}`);
+    } 
+    else {
+      toast.error(`${error.message || 'Registration failed'}`);
+    }
+  };
 
   const checkForLivingBeings = async (imageElement) => {
     try {
@@ -103,6 +270,7 @@ const loyaltyPercentage=[
       return false; // Fail open if error
     }
   };
+
   const handleFileChange = async (e) => {
     setError(null);
     if (e.target.files && e.target.files[0]) {
@@ -121,14 +289,17 @@ const loyaltyPercentage=[
               setError('Images containing living beings are not allowed.');
               setUploadedFile(null);
               setPreviewUrl(null);
+              setValue('image', null);
             } else {
               setUploadedFile(file);
               setPreviewUrl(reader.result);
+              setValue('image', file, { shouldValidate: true });
             }
           } catch (err) {
             setError('Error analyzing image. Please try again.');
             setUploadedFile(null);
             setPreviewUrl(null);
+            setValue('image', null);
           }
         };
       };
@@ -155,14 +326,17 @@ const loyaltyPercentage=[
               setError('Images containing living beings are not allowed.');
               setUploadedFile(null);
               setPreviewUrl(null);
+              setValue('image', null);
             } else {
               setUploadedFile(file);
-              setPreviewUrl(reader.result );
+              setPreviewUrl(reader.result);
+              setValue('image', file, { shouldValidate: true });
             }
           } catch (err) {
             setError('Error analyzing image. Please try again.');
             setUploadedFile(null);
             setPreviewUrl(null);
+            setValue('image', null);
           }
         };
       };
@@ -178,54 +352,145 @@ const loyaltyPercentage=[
     setUploadedFile(null);
     setPreviewUrl(null);
     setError(null);
+    setValue('image', null);
   };
 
-  const handleUpload = () => {
-    setIsUploading(true);
-    
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 10;
-      setUploadProgress(progress);
-      
-      if (progress >= 100) {
-        clearInterval(interval);
-        setIsUploading(false);
-        setCurrentStep('details');
-      }
-    }, 500);
-  };
-
-  const handleDetailsSubmit = (e) => {
-    e.preventDefault();
-    setCurrentStep('blockchain');
-    
-    setTimeout(() => {
-      setCurrentStep('complete');
-    }, 3000);
-  };
-const formData=new FormData();
-  formData.append('title', title);
-  formData.append('description', description);
-  formData.append('price', price);
-  formData.append('royalty_percentage', selectedLoyalty);
-  formData.append('file', uploadedFile);
-  const handleSubmit = (e) => {
-  formData.append('license', selectedLicense);
-    axios.post(`${baseURL}/api/v1/artwork/upload`,formData, {
-      headers: {
-        // 'Content-Type': 'multipart/form-data',
-        'Authorization': `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1QHJtLmNvbSIsInVzZXJfaWQiOiI2ODMzNTFjNWJjZDU4YmQxMzMyNTA1MDQiLCJ3YWxsZXRfYWRkcmVzcyI6bnVsbCwiZXhwIjoxNzQ4MTk1ODkzfQ.77q3SX5kiDaQhSAMS2nQ3hJ_AaJD7YvC81PZEpCBCdM`
-      },
+  const handleUpload = async () => {
+    // Validate the image field
+    const isValid = await trigger('image');
+    if (isValid) {
+      setCurrentStep('details');
     }
-  )
-   .then(res => {
-    console.log("Upload successful:", res.data);
-  })
-  .catch(err => {
-    console.error("Upload failed:", err.response?.data || err.message);
-  });
-  }
+  };
+
+  const onSubmit = async (data) => {
+    if (!isCorrectNetwork || !account) {
+      toast.error(!isCorrectNetwork 
+        ? 'Please switch to Sepolia testnet first' 
+        : 'Wallet not connected');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setDebugInfo(null);
+    
+    try {
+      // Compress image before upload
+      const compressedImage = await compressImage(data.image);
+      
+      // Create FormData with compressed image
+      const formData = new FormData();
+      formData.append('title', data.title);
+      formData.append('description', data.description || '');
+      formData.append('royalty_percentage', data.royalty_percentage.toString());
+      formData.append('price', data.price.toString());
+      formData.append('license_type', selectedLicense);
+      formData.append('image', compressedImage, data.image.name);
+
+      // Phase 1: Prepare registration with image upload
+      const prepToast = toast.loading('Uploading image and preparing registration...');
+      const preparation = await artworksAPI.registerWithImage(formData);
+      toast.dismiss(prepToast);
+
+      setDebugInfo({
+        step: 'preparation',
+        data: preparation,
+        request_data: {
+          title: data.title,
+          description: data.description,
+          royalty_percentage: data.royalty_percentage,
+          price: data.price,
+          license_type: selectedLicense,
+          account: account
+        }
+      });
+
+      if (!preparation.transaction_data) {
+        throw new Error('Backend did not return transaction data');
+      }
+
+      // Validate transaction data
+      const validationErrors = validateTransactionData(preparation.transaction_data);
+      if (validationErrors.length > 0) {
+        throw new Error(`Invalid transaction data: ${validationErrors.join(', ')}`);
+      }
+
+      // Check for demo mode addresses
+      if (preparation.transaction_data.to && preparation.transaction_data.to.startsWith('0x1234567890')) {
+        throw new Error('Backend is in demo mode - check contract configuration');
+      }
+
+      setCurrentStep('blockchain');
+
+      // Phase 2: Send transaction with longer timeout
+      const txToast = toast.loading('Sending transaction... (This may take 1-2 minutes on testnet)');
+      const txResponse = await sendTransaction({
+        ...preparation.transaction_data,
+        from: account,
+        gas: 500000 // Higher gas for registration
+      });
+      toast.dismiss(txToast);
+
+      // Phase 3: Confirm registration (non-blocking)
+      const finalizingToast = toast.loading('Finalizing registration...');
+      try {
+        const confirmation = await artworksAPI.confirmRegistration({
+          tx_hash: txResponse.hash,
+          from_address: account,
+          metadata_uri: preparation.metadata_uri,
+          royalty_percentage: data.royalty_percentage,
+          title: data.title,
+          description: data.description,
+          price: data.price,
+          license_type: selectedLicense
+        });
+
+        if (!confirmation.success) {
+          console.warn('Registration confirmation had issues:', confirmation);
+        }
+        
+        toast.dismiss(finalizingToast);
+        
+      } catch (confirmError) {
+        console.warn('Registration confirmation failed, but transaction was successful:', confirmError);
+        toast.dismiss(finalizingToast);
+        // Non-critical error, continue
+      }
+
+      // Success
+      setTransactionHash(txResponse.hash);
+      toast.success('Artwork registration submitted to blockchain!');
+      reset();
+      setCurrentStep('complete');
+      
+    } catch (error) {
+      toast.dismiss();
+      handleRegistrationError(error);
+      setCurrentStep('details');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const StatusIndicator = ({ title, message, type = 'info' }) => {
+    const colors = {
+      success: 'bg-green-50 border-green-200 text-green-800',
+      error: 'bg-red-50 border-red-200 text-red-800',
+      warning: 'bg-yellow-50 border-yellow-200 text-yellow-800',
+      info: 'bg-blue-50 border-blue-200 text-blue-800'
+    };
+
+    return (
+      <div className={`p-4 rounded-lg border ${colors[type]} mb-4`}>
+        <div className="flex items-center">
+          <AlertCircle className="w-5 h-5 mr-2" />
+          <h4 className="font-semibold">{title}</h4>
+        </div>
+        <p className="text-sm mt-1">{message}</p>
+      </div>
+    );
+  };
+
   const renderUploadStep = () => (
     <div className="mt-6">
       <div
@@ -263,6 +528,9 @@ const formData=new FormData();
             {error && (
               <p className="mt-2 text-sm text-red-600">{error}</p>
             )}
+            {errors.image && (
+              <p className="mt-2 text-sm text-red-600">{errors.image.message}</p>
+            )}
           </div>
         ) : (
           <div>
@@ -288,142 +556,129 @@ const formData=new FormData();
         )}
       </div>
 
-      {uploadedFile && !isUploading && (
+      {uploadedFile && (
         <div className="mt-6">
           <Button 
-            variant="contained" color="secondary" 
+            variant="contained" 
+            color="secondary" 
             onClick={handleUpload}
             fullWidth
-          className='!font-bold'
-
+            className='!font-bold'
           >
             Continue to Details
           </Button>
-        </div>
-      )}
-
-      {isUploading && (
-        <div className="mt-6">
-          <div className="text-sm text-gray-600 mb-2">
-            Uploading... {uploadProgress}%
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2.5">
-            <div
-              className="bg-purple-800 h-2.5 rounded-full transition-all duration-300"
-              style={{ width: `${uploadProgress}%` }}
-            ></div>
-          </div>
         </div>
       )}
     </div>
   );
 
   const renderDetailsStep = () => (
-    <form onSubmit={handleDetailsSubmit} className="mt-6 space-y-6">
+    <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-6">
       <div>
-      <InputLabel htmlFor="title">Artwork Title</InputLabel>
+        <InputLabel htmlFor="title">Artwork Title *</InputLabel>
         <Input
           id="title"
           type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          required
+          {...register('title')}
+          error={!!errors.title}
           fullWidth
         />
+        {errors.title && (
+          <p className="mt-1 text-sm text-red-600">{errors.title.message}</p>
+        )}
       </div>
 
       <div>
-        <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-          Description
-        </label>
+        <InputLabel htmlFor="description">Description</InputLabel>
         <textarea
           id="description"
           rows={4}
           className="shadow-sm focus:ring-purple-500 focus:border-purple-500 block w-full sm:text-sm border-gray-300 rounded-md"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          required
+          {...register('description')}
         />
+        {errors.description && (
+          <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
+        )}
       </div>
+
       <div>
-      <InputLabel htmlFor="price">Price</InputLabel>
+        <InputLabel htmlFor="price">Price (ETH) *</InputLabel>
         <Input
           id="price"
-          type="text"
-          value={`${price}`}
-          onChange={(e) => setPrice(e.target.value)}
-          required
+          type="number"
+          step="0.001"
+          {...register('price')}
+          error={!!errors.price}
           fullWidth
         />
+        {errors.price && (
+          <p className="mt-1 text-sm text-red-600">{errors.price.message}</p>
+        )}
+      </div>
+
+      <div>
+        <InputLabel htmlFor="royalty_percentage">Royalty Percentage *</InputLabel>
+        <select
+          id="royalty_percentage"
+          className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md"
+          {...register('royalty_percentage')}
+        >
+          {loyaltyPercentage.map((option) => (
+            <option key={option.id} value={option.value}>
+              {option.percentage}
+            </option>
+          ))}
+        </select>
+        {errors.royalty_percentage && (
+          <p className="mt-1 text-sm text-red-600">{errors.royalty_percentage.message}</p>
+        )}
       </div>
 
       {/* <div>
-        <label htmlFor="license" className="block text-sm font-medium text-gray-700 mb-1">
-          License Terms
-        </label>
-        <div className="relative">
-          <select
-            id="license"
-            className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md"
-            value={selectedLicense}
-            onChange={(e) => setSelectedLicense(e.target.value)}
-            required
-          >
-            {licenseTermsOptions.map((license) => (
-              <option key={license.id} value={license.id}>
-                {license.name} - ${license.price}
-              </option>
-            ))}
-          </select>
-          
-        </div>
+        <InputLabel htmlFor="license">License Terms</InputLabel>
+        <select
+          id="license"
+          className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md"
+          value={selectedLicense}
+          onChange={(e) => setSelectedLicense(e.target.value)}
+        >
+          {licenseTermsOptions.map((license) => (
+            <option key={license.id} value={license.id}>
+              {license.name} - ${license.price}
+            </option>
+          ))}
+        </select>
         <p className="mt-2 text-sm text-gray-500">
           {licenseTermsOptions.find(l => l.id === selectedLicense)?.description}
         </p>
       </div> */}
-      <div>
-        <label htmlFor="loyalty" className="block text-sm font-medium text-gray-700 mb-1">
-Loyalty & Percentage        </label>
-        <div className="relative">
-          <select
-            id="loyalty"
-            className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md"
-            value={selectedLoyalty}
-            onChange={(e) => setSelectedLicense(e.target.value)}
-            required
-          >
-            {loyaltyPercentage.map((license) => (
-              <option key={license.id} value={license.id}>
-                {license.percentage}
-              </option>
-            ))}
-          </select>
-          
-        </div>
-        
-      </div>
 
-      
-
-      <div>
-        <Button
-          type="submit"
-          variant="contained" color="secondary"
-          fullWidth
-          className='!font-bold'
-onClick={handleSubmit}
-        >
-          Register Your Artwork
-        </Button>
-      </div>
+      <Button
+        type="submit"
+        variant="contained" 
+        color="secondary"
+        fullWidth
+        className='!font-bold'
+        disabled={isSubmitting}
+      >
+        {isSubmitting ? (
+          <div className="flex items-center justify-center">
+            <LoadingSpinner size="small" text="" />
+            <span className="ml-2">Registering...</span>
+          </div>
+        ) : (
+          'Register Your Artwork'
+        )}
+      </Button>
     </form>
   );
 
   const renderBlockchainStep = () => (
     <div className="mt-8 text-center">
       <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-800 mx-auto"></div>
-      <h3 className="mt-6 text-lg font-medium text-gray-900">Registering your artwork </h3>
-     
+      <h3 className="mt-6 text-lg font-medium text-gray-900">Registering your artwork on blockchain</h3>
+      <p className="mt-2 text-sm text-gray-500">This may take a few moments...</p>
+      
       <div className="mt-6 flex justify-center space-x-4">
         <div className="text-center">
           <div className="flex items-center justify-center w-8 h-8 mx-auto rounded-full bg-green-100 text-green-600">
@@ -433,8 +688,22 @@ onClick={handleSubmit}
           </div>
           <p className="mt-1 text-xs text-gray-500">Upload</p>
         </div>
-      
-       
+        
+        <div className="text-center">
+          <div className="flex items-center justify-center w-8 h-8 mx-auto rounded-full bg-green-100 text-green-600">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">Details</p>
+        </div>
+        
+        <div className="text-center">
+          <div className="flex items-center justify-center w-8 h-8 mx-auto rounded-full bg-purple-100 text-purple-600">
+            <span className="text-sm font-bold">3</span>
+          </div>
+          <p className="mt-1 text-xs text-gray-500">Register</p>
+        </div>
       </div>
     </div>
   );
@@ -447,25 +716,41 @@ onClick={handleSubmit}
         </svg>
       </div>
       <h3 className="mt-6 text-lg font-medium text-gray-900">
-        {title || "Your artwork"} has been registered!
+        Artwork has been registered!
       </h3>
       <p className="mt-2 text-sm text-gray-500">
-        Your artwork is now  ready to be licensed
+        Your artwork is now on the blockchain and ready to be licensed
       </p>
+      
+      {transactionHash && (
+        <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+          <p className="text-xs text-gray-600">Transaction Hash:</p>
+          <p className="text-xs font-mono text-gray-800 break-all">
+            {transactionHash}
+          </p>
+        </div>
+      )}
     
       <div className="mt-6 flex space-x-4">
         <Button
-          variant="outlined" color="secondary"
+          variant="outlined" 
+          color="secondary"
           fullWidth
-          onClick={() => setCurrentStep('upload')}
+          onClick={() => {
+            setCurrentStep('upload');
+            reset();
+            setUploadedFile(null);
+            setPreviewUrl(null);
+          }}
           className='!font-bold'
         >
           Upload Another
         </Button>
         <Button
-          variant="contained" color="secondary"
+          variant="contained" 
+          color="secondary"
           fullWidth
-          onClick={() => window.location.href = '/dashboard/artworks'}
+          onClick={() => navigate('/dashboard/artworks')}
           className='!font-bold !ms-2'
         >
           View My Artworks
@@ -474,8 +759,23 @@ onClick={handleSubmit}
     </div>
   );
 
+  if (isAuthenticated && !isWalletConnected) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg p-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Wallet Connection Required
+          </h2>
+          <p className="text-gray-600 mb-6">
+            Please connect your MetaMask wallet to register artworks.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Upload Artwork</h1>
         <p className="mt-1 text-sm text-gray-500">
@@ -484,8 +784,47 @@ onClick={handleSubmit}
         <p className="mt-1 text-sm text-red-500">
           *Note: Please do not upload artworks containing living beings or cartoons. It will be rejected while uploading or may be by admin later.
         </p>
-
       </div>
+
+      {/* Status Indicators */}
+      {/* <div className="mb-8 space-y-4">
+        {backendStatus && (
+          <StatusIndicator
+            title="Backend Status"
+            message={backendStatus.message}
+            type={backendStatus.status === 'success' ? 'success' : 'error'}
+          />
+        )}
+
+        {balanceCheck && (
+          <StatusIndicator
+            title="Wallet Balance"
+            message={balanceCheck.sufficient_balance ? 
+              `Sufficient balance: ${balanceCheck.balance_eth} ETH` :
+              `Insufficient balance: ${balanceCheck.balance_eth} ETH`}
+            type={balanceCheck.sufficient_balance ? 'success' : 'error'}
+          />
+        )}
+
+        {!isCorrectNetwork && (
+          <StatusIndicator
+            title="Network Error"
+            message="Please switch to Sepolia testnet"
+            type="error"
+          />
+        )}
+      </div> */}
+
+      {debugInfo && (
+        <div className="mb-8 bg-gray-50 border border-gray-200 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">
+            Debug Information
+          </h3>
+          <pre className="text-xs text-gray-600 overflow-auto max-h-64 bg-white p-4 rounded border">
+            {JSON.stringify(debugInfo, null, 2)}
+          </pre>
+        </div>
+      )}
 
       <div className="bg-white shadow rounded-lg overflow-hidden">
         {/* Progress Steps */}

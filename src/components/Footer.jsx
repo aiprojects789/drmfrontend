@@ -8,7 +8,7 @@ const Footer= () => {
           <div className="col-span-1 md:col-span-1">
             <h2 className="text-lg font-bold mb-4">ARTDUNIYA </h2>
             <p className="text-gray-400 mb-4">
-              Blockchain-powered digital rights management platform for ethical creators and artists.
+              Empowering ethical creators with blockchain-powered DRM to protect their digital rights.
             </p>
             <div className="flex space-x-4">
               <a href="#" className="text-gray-400 hover:text-white">
@@ -37,22 +37,22 @@ const Footer= () => {
             </h3>
             <ul className="space-y-2">
               <li>
-                <a href="/features/protect" className="text-gray-400 hover:text-white">
+                <a href="/about" className="text-gray-400 hover:text-white">
                   Artwork Protection
                 </a>
               </li>
               <li>
-                <a href="/features/license" className="text-gray-400 hover:text-white">
+                <a href="/about" className="text-gray-400 hover:text-white">
                   Licensing System
                 </a>
               </li>
               <li>
-                <a href="/features/piracy" className="text-gray-400 hover:text-white">
+                <a href="/about" className="text-gray-400 hover:text-white">
                   Piracy Detection
                 </a>
               </li>
               <li>
-                <a href="/pricing" className="text-gray-400 hover:text-white">
+                <a href="/about" className="text-gray-400 hover:text-white">
                   Pricing
                 </a>
               </li>
@@ -69,18 +69,19 @@ const Footer= () => {
                 </a>
               </li>
               <li>
-                <a href="/team" className="text-gray-400 hover:text-white">
-                  Link1
+                <a href="/faqs" className="text-gray-400 hover:text-white">
+                  FAQs
                 </a>
               </li>
               <li>
-                <a href="/careers" className="text-gray-400 hover:text-white">
-                  Link2
+                <a href="/contact" className="text-gray-400 hover:text-white">
+                  Contact Us
                 </a>
               </li>
               <li>
-                <a href="/blog" className="text-gray-400 hover:text-white">
-Link3                </a>
+                <a href="/explorer" className="text-gray-400 hover:text-white">
+                  Explorer
+                </a>
               </li>
             </ul>
           </div>

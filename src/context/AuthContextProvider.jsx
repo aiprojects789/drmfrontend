@@ -1,11 +1,13 @@
-import React, { useState } from 'react'
-import AuthContext from './AuthContext'
+import React from 'react';
+import { AuthProvider } from './AuthContext';
 
-const AuthContextProvider = ({children}) => {
-    const [isLogin, setIsLogin] = useState(false)
+// This is just a wrapper component that provides the AuthContext
+const AuthContextProvider = ({ children }) => {
   return (
-    <AuthContext.Provider value={{isLogin,setIsLogin}}>{children}</AuthContext.Provider>
-  )
-}
+    <AuthProvider>
+      {children}
+    </AuthProvider>
+  );
+};
 
-export default AuthContextProvider
+export default AuthContextProvider;
