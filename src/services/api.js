@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = '/api/v1';
+const API_BASE_URL = 'https://drmbackend-fssdrv599-aisha-kamrans-projects-7a6dddbb.vercel.app/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
