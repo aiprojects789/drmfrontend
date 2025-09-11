@@ -8,7 +8,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'https://drmbackend-fssdrv599-aisha-kamrans-projects-7a6dddbb.vercel.app/',
+        target: 'https://localhost:8000',
         changeOrigin: true,
         secure: false,
       }

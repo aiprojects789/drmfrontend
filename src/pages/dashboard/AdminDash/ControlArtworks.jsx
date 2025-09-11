@@ -4,7 +4,7 @@ import { CheckCircle, XCircle } from 'lucide-react';
 import axios from 'axios';
 
 const { Meta } = Card;
-const baseURL = "https://drmbackend-fssdrv599-aisha-kamrans-projects-7a6dddbb.vercel.app/api/v1/admin";
+const baseURL = "http://127.0.0.1:8000//api/v1/admin";
 
 const ControlArtworks = () => {
   const [artworks, setArtworks] = useState([]);
@@ -68,7 +68,7 @@ const ControlArtworks = () => {
           const imageSrc = art.image
             ? art.image.startsWith("http")
               ? art.image
-              : `https://drmbackend-fssdrv599-aisha-kamrans-projects-7a6dddbb.vercel.app/${art.image}`
+              : `http://127.0.0.1:8000/${art.image}`
             : "/artwork.jfif";
 
           return (
