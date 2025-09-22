@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Table, Input, Button, message, Modal, Form } from 'antd';
 import axios from 'axios';
 
-const baseURL = "https://drmbackend-fssdrv599-aisha-kamrans-projects-7a6dddbb.vercel.app/api/v1/admin";
+const baseURL = "http://127.0.0.1:8000/api/v1/admin";
 
 const AdminUserManagement = () => {
   const [users, setUsers] = useState([]);
