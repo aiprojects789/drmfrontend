@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Palette, WifiOff, RefreshCw, ImageIcon } from 'lucide-react';
+import { Palette, WifiOff, RefreshCw, ImageIcon, Database } from 'lucide-react';
 
 // IPFS Gateway utilities
 const extractIPFSHash = (ipfsUri) => {
@@ -39,9 +39,12 @@ const getIPFSGateways = (hash) => {
 
 const IPFSImage = ({ 
   ipfsUri, 
+  tokenId,
+  hasFallback = true,
   alt = "Artwork", 
   className = "",
   showRetryButton = true,
+  showFallbackInfo = false,
   onLoad,
   onError,
   ...props 
@@ -50,76 +53,152 @@ const IPFSImage = ({
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const [imageUrl, setImageUrl] = useState(null);
 
   const hash = extractIPFSHash(ipfsUri);
   const gateways = hash ? getIPFSGateways(hash) : [];
-  const currentUrl = gateways[currentGatewayIndex];
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  const fallbackUrl = tokenId ? `${API_BASE}/api/v1/artwork/${tokenId}/image` : null;
 
-  // Reset when ipfsUri changes
-  useEffect(() => {
-    setCurrentGatewayIndex(0);
-    setIsLoading(true);
-    setHasError(false);
-    setRetryCount(0);
-  }, [ipfsUri]);
-
-  const tryNextGateway = useCallback(() => {
-    if (currentGatewayIndex < gateways.length - 1) {
-      setCurrentGatewayIndex(prev => prev + 1);
+  // Define tryFallback FIRST
+  const tryFallback = useCallback(() => {
+    console.log('Trying fallback...');
+    if (hasFallback && fallbackUrl && !usingFallback) {
+      console.log('Switching to fallback image:', fallbackUrl);
+      setUsingFallback(true);
+      setImageUrl(fallbackUrl);
       setIsLoading(true);
+      setHasError(false);
     } else {
+      console.log('Fallback not available or already tried');
       setIsLoading(false);
       setHasError(true);
       if (onError) {
         onError({
-          error: 'All gateways failed',
+          error: 'All sources failed',
           gateways: gateways.length,
-          retries: retryCount
+          retries: retryCount,
+          fallback_attempted: usingFallback
         });
       }
     }
-  }, [currentGatewayIndex, gateways.length, onError, retryCount]);
+  }, [hasFallback, fallbackUrl, usingFallback, onError, gateways.length, retryCount]);
 
+  // Then define tryNextGateway which uses tryFallback
+  const tryNextGateway = useCallback(() => {
+    console.log('Trying next gateway...');
+    if (currentGatewayIndex < gateways.length - 1) {
+      const nextIndex = currentGatewayIndex + 1;
+      console.log('Trying gateway', nextIndex, ':', gateways[nextIndex]);
+      setCurrentGatewayIndex(nextIndex);
+      setImageUrl(gateways[nextIndex]);
+      setIsLoading(true);
+    } else {
+      console.log('All gateways failed, trying fallback');
+      tryFallback();
+    }
+  }, [currentGatewayIndex, gateways, tryFallback]);
+
+  // Then define other functions
   const handleImageLoad = () => {
+    console.log('Image loaded successfully:', imageUrl);
     setIsLoading(false);
     setHasError(false);
     if (onLoad) {
-      onLoad({ gateway: currentUrl, attempts: currentGatewayIndex + 1 });
+      onLoad({ 
+        source: usingFallback ? 'database' : 'ipfs',
+        url: imageUrl, 
+        attempts: currentGatewayIndex + 1,
+        using_fallback: usingFallback
+      });
     }
   };
 
   const handleImageError = () => {
-    tryNextGateway();
+    console.log('Image failed to load:', imageUrl);
+    if (usingFallback) {
+      console.log('Fallback also failed');
+      setIsLoading(false);
+      setHasError(true);
+      if (onError) {
+        onError({
+          error: 'Fallback image also failed',
+          fallback_attempted: true
+        });
+      }
+    } else {
+      console.log('Trying next source');
+      tryNextGateway();
+    }
   };
 
   const handleRetry = () => {
+    console.log('Manual retry triggered');
     setRetryCount(prev => prev + 1);
+    setCurrentGatewayIndex(0);
+    setUsingFallback(false);
+    setHasError(false);
+    
+    if (hash && gateways.length > 0) {
+      console.log('Retrying IPFS');
+      setImageUrl(gateways[0]);
+    } else if (hasFallback && fallbackUrl) {
+      console.log('Retrying fallback');
+      setUsingFallback(true);
+      setImageUrl(fallbackUrl);
+    }
+    setIsLoading(true);
+  };
+
+  // DEBUG: Log component state
+  useEffect(() => {
+    console.log('IPFSImage state:', {
+      ipfsUri,
+      tokenId,
+      hasFallback,
+      hash,
+      gateways: gateways.length,
+      fallbackUrl,
+      usingFallback,
+      imageUrl
+    });
+  }, [ipfsUri, tokenId, hasFallback, hash, gateways, fallbackUrl, usingFallback, imageUrl]);
+
+  // Reset when props change
+  useEffect(() => {
+    console.log('Resetting IPFSImage state');
     setCurrentGatewayIndex(0);
     setIsLoading(true);
     setHasError(false);
-  };
+    setRetryCount(0);
+    setUsingFallback(false);
+    
+    // Start with IPFS if available, otherwise go straight to fallback
+    if (hash && gateways.length > 0) {
+      console.log('Starting with IPFS:', gateways[0]);
+      setImageUrl(gateways[0]);
+    } else if (hasFallback && fallbackUrl) {
+      console.log('No IPFS, going straight to fallback:', fallbackUrl);
+      setUsingFallback(true);
+      setImageUrl(fallbackUrl);
+    } else {
+      console.log('No image sources available');
+      setHasError(true);
+      setIsLoading(false);
+    }
+  }, [ipfsUri, tokenId]);
 
-  // Error state - no URI or hash
-  if (!ipfsUri || !hash) {
-    return (
-      <div className={`bg-gray-100 rounded-lg overflow-hidden flex flex-col items-center justify-center p-4 ${className}`}>
-        <div className="text-center">
-          <ImageIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-          <p className="text-gray-500 text-sm">No image</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Error state - all gateways failed
-  if (hasError) {
+  // Error state - no URI or hash and no fallback
+  if (!imageUrl || hasError) {
     return (
       <div className={`bg-gray-100 rounded-lg overflow-hidden flex flex-col items-center justify-center p-4 ${className}`}>
         <div className="text-center">
           <WifiOff className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-          <p className="text-gray-500 text-sm mb-1">Failed to load</p>
-          <p className="text-gray-400 text-xs mb-3">
-            {gateways.length} gateways tried
+          <p className="text-gray-500 text-sm mb-1">Failed to load image</p>
+          <p className="text-gray-400 text-xs mb-2">
+            {gateways.length > 0 && `IPFS: ${gateways.length} gateways tried`}
+            {hasFallback && <span> • Fallback: attempted</span>}
           </p>
           {showRetryButton && (
             <button
@@ -141,9 +220,18 @@ const IPFSImage = ({
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-100 z-10">
           <div className="text-center">
-            <Palette className="w-8 h-8 text-purple-400 mx-auto mb-2 animate-pulse" />
-            <p className="text-xs text-gray-500">Loading artwork...</p>
-            {gateways.length > 1 && (
+            {usingFallback ? (
+              <>
+                <Database className="w-8 h-8 text-blue-400 mx-auto mb-2 animate-pulse" />
+                <p className="text-xs text-gray-500">Loading from database...</p>
+              </>
+            ) : (
+              <>
+                <Palette className="w-8 h-8 text-purple-400 mx-auto mb-2 animate-pulse" />
+                <p className="text-xs text-gray-500">Loading artwork...</p>
+              </>
+            )}
+            {gateways.length > 1 && !usingFallback && (
               <div className="mt-2 w-16 h-1 bg-gray-200 rounded-full mx-auto overflow-hidden">
                 <div 
                   className="h-full bg-purple-400 rounded-full transition-all duration-500"
@@ -155,9 +243,19 @@ const IPFSImage = ({
         </div>
       )}
 
+      {/* Fallback indicator */}
+      {showFallbackInfo && usingFallback && !isLoading && (
+        <div className="absolute top-2 right-2 z-20">
+          <div className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full flex items-center">
+            <Database className="w-3 h-3 mr-1" />
+            DB
+          </div>
+        </div>
+      )}
+
       {/* Image */}
       <img
-        src={currentUrl}
+        src={imageUrl}
         alt={alt}
         className={`w-full h-full object-cover transition-opacity duration-300 ${
           isLoading ? 'opacity-0' : 'opacity-100'

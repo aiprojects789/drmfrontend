@@ -140,7 +140,9 @@ const MyArtworks = () => {
         <div className='grid grid-cols-1 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'>
           {artworks.map((artwork) => {
             const formattedDate = formatDate(artwork.created_at);
-            const imageUrl = artwork.image_url || artwork.metadata_uri || artwork.ipfs_hash;
+            
+            // Get the correct IPFS URI - check different possible fields
+            const ipfsUri = artwork.metadata_uri || artwork.image_ipfs_uri || artwork.ipfs_hash;
 
             return (
               <div
@@ -148,11 +150,13 @@ const MyArtworks = () => {
                 className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 hover:shadow-lg transition-shadow"
               >
                 <div className="bg-gray-100 h-48 flex items-center justify-center">
-                  {imageUrl ? (
+                  {ipfsUri ? (
                     <IPFSImage
-                      src={imageUrl}
-                      alt={`Artwork ${artwork.title || artwork.token_id}`}
+                      ipfsUri={ipfsUri}
+                      tokenId={artwork.token_id}
+                      alt={artwork.title || `Artwork ${artwork.token_id || artwork.id}`}
                       className="w-full h-full object-cover"
+                      showFallbackInfo={true}
                     />
                   ) : (
                     <div className="text-center">

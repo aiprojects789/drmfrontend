@@ -1,60 +1,94 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { yupResolver } from '@hookform/resolvers/yup';
-import * as yup from 'yup';
-import { Upload, ChevronDown, X, AlertCircle, Palette, Percent } from 'lucide-react';
-import * as blazeface from '@tensorflow-models/blazeface';
-import * as tf from '@tensorflow/tfjs';
-import { Button, Input, InputLabel } from '@mui/material';
-import { useWeb3 } from '../../../context/Web3Context';
-import { useAuth } from '../../../context/AuthContext';
-import { artworksAPI } from '../../../services/api';
-import LoadingSpinner from '../../../components/common/LoadingSpinner';
-import toast from 'react-hot-toast';
-import imageCompression from 'browser-image-compression';
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { useForm } from "react-hook-form";
+import { yupResolver } from "@hookform/resolvers/yup";
+import * as yup from "yup";
+import {
+  Upload,
+  X,
+  AlertCircle,
+  Palette,
+  Shield,
+  CheckCircle,
+  XCircle,
+  Eye,
+  Database,
+  Zap,
+  Copy,
+  AlertTriangle,
+  Image as ImageIcon,
+} from "lucide-react";
+import {
+  Button,
+  Input,
+  InputLabel,
+  CircularProgress,
+  Box,
+  Typography,
+  FormControl,
+  Select,
+  MenuItem,
+} from "@mui/material";
+import { useWeb3 } from "../../../context/Web3Context";
+import { useAuth } from "../../../context/AuthContext";
+import { artworksAPI } from "../../../services/api";
+import LoadingSpinner from "../../../components/common/LoadingSpinner";
+import toast from "react-hot-toast";
+import imageCompression from "browser-image-compression";
 
-// Validation schema
+// Import TensorFlow.js and BlazeFace
+import * as tf from "@tensorflow/tfjs";
+import * as blazeface from "@tensorflow-models/blazeface";
+
+// Enhanced validation schema with price and categories
 const schema = yup.object({
-  title: yup.string().required('Title is required').max(100, 'Title too long'),
-  description: yup.string().max(1000, 'Description too long'),
+  title: yup.string().required("Title is required").max(100, "Title too long"),
+  description: yup
+    .string()
+    .required("Description is required") // Add this line
+    .max(1000, "Description too long"),
   royalty_percentage: yup
     .number()
-    .required('Royalty percentage is required')
-    .min(0, 'Royalty cannot be negative')
-    .max(2000, 'Royalty cannot exceed 20% (2000 basis points)')
-    .integer('Royalty must be a whole number'),
+    .required("Royalty percentage is required")
+    .min(0, "Royalty cannot be negative")
+    .max(2000, "Royalty cannot exceed 20% (2000 basis points)")
+    .integer("Royalty must be a whole number"),
   price: yup
     .number()
-    .required('Price is required')
-    .min(0, 'Price cannot be negative'),
+    .required("Price is required")
+    .min(0, "Price cannot be negative"),
+  medium_category: yup.string().required("Medium category is required"),
+  style_category: yup.string().required("Style category is required"),
+  subject_category: yup.string().required("Subject category is required"),
   image: yup
     .mixed()
-    .required('Image is required')
-    .test('fileSize', 'File too large (max 5MB)', value => {
+    .required("Image is required")
+    .test("fileSize", "File too large (max 10MB)", (value) => {
       if (!value) return false;
-      return value.size <= 5 * 1024 * 1024; // 5MB limit
+      return value.size <= 10 * 1024 * 1024; // 10MB limit
     })
-    .test('fileType', 'Unsupported file type', value => {
+    .test("fileType", "Unsupported file type", (value) => {
       if (!value) return false;
-      return ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(value.type);
+      return ["image/jpeg", "image/png", "image/gif", "image/webp"].includes(
+        value.type
+      );
     })
-    .test('dimensions', 'Image dimensions too large', async (value) => {
+    .test("dimensions", "Image dimensions too large", async (value) => {
       if (!value) return false;
-      
+
       // Check image dimensions
       return new Promise((resolve) => {
         const img = new Image();
-        img.onload = function() {
+        img.onload = function () {
           // Max 4000px on longest side
           resolve(Math.max(this.width, this.height) <= 4000);
         };
-        img.onerror = function() {
+        img.onerror = function () {
           resolve(false);
         };
         img.src = URL.createObjectURL(value);
       });
-    })
+    }),
 });
 
 const UploadArtworks = () => {
@@ -62,55 +96,54 @@ const UploadArtworks = () => {
   const { account, sendTransaction, isCorrectNetwork } = useWeb3();
   const { isAuthenticated, isWalletConnected } = useAuth();
 
-  
-  const licenseTermsOptions = [
-    {
-      id: 'license-1',
-      name: 'Standard License',
-      description: 'Use for personal and small business purposes',
-      price: 50,
-      duration: 365,
-      rights: ['Print', 'Digital display', 'No commercial use']
-    },
-    {
-      id: 'license-2',
-      name: 'Commercial License',
-      description: 'Full commercial usage rights',
-      price: 200,
-      duration: 730,
-      rights: ['Print', 'Digital display', 'Commercial use', 'Merchandise']
-    },
-    {
-      id: 'license-3',
-      name: 'Enterprise License',
-      description: 'Unlimited usage rights for large organizations',
-      price: 500,
-      duration: 0, // perpetual
-      rights: ['Print', 'Digital display', 'Commercial use', 'Merchandise', 'Resale', 'Sublicensing']
-    }
+  const loyaltyPercentage = [
+    { id: 1, percentage: "5%", value: 500 },
+    { id: 2, percentage: "10%", value: 1000 },
+    { id: 3, percentage: "15%", value: 1500 },
+    { id: 4, percentage: "20%", value: 2000 },
   ];
 
-  const loyaltyPercentage = [
-    { id: 1, percentage: '5%', value: 500 },
-    { id: 2, percentage: '10%', value: 1000 },
-    { id: 3, percentage: '15%', value: 1500 },
-    { id: 4, percentage: '20%', value: 2000 },
-    { id: 5, percentage: '25%', value: 2500 },
-    { id: 6, percentage: '30%', value: 3000 }
+  const aiModels = [
+    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash (Fast)" },
+    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro (Accurate)" },
+    { id: "openai-gpt4.1", name: "OpenAI GPT-4.1" },
+    { id: "groq-llama-3.3-70b", name: "Groq Llama-3.3 70B" },
+    { id: "groq-gpt-oss-20b", name: "Groq GPT-OSS-20B" },
   ];
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [transactionHash, setTransactionHash] = useState(null);
-  const [debugInfo, setDebugInfo] = useState(null);
-  const [backendStatus, setBackendStatus] = useState(null);
-  const [balanceCheck, setBalanceCheck] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
-  const [currentStep, setCurrentStep] = useState('upload');
-  const [model, setModel] = useState(null);
-  const [error, setError] = useState(null);
+  const [currentStep, setCurrentStep] = useState("upload");
   const [uploadedFile, setUploadedFile] = useState(null);
-  const [selectedLicense, setSelectedLicense] = useState(licenseTermsOptions[0].id);
-  const [selectedLoyalty, setSelectedLoyalty] = useState(loyaltyPercentage[1].id);
+  const [selectedAIModel, setSelectedAIModel] = useState(aiModels[0].id);
+  const [blazeFaceModel, setBlazeFaceModel] = useState(null);
+  const [faceDetectionError, setFaceDetectionError] = useState(null);
+
+  // NEW: State for categories
+  const [categories, setCategories] = useState({
+    medium: [{ id: "loading", name: "Loading..." }],
+    style: [{ id: "loading", name: "Loading..." }],
+    subject: [{ id: "loading", name: "Loading..." }],
+  });
+
+  const [categoriesLoading, setCategoriesLoading] = useState({
+    medium: true,
+    style: true,
+    subject: true,
+  });
+
+  const [showOtherMedium, setShowOtherMedium] = useState(false);
+  const [showOtherStyle, setShowOtherStyle] = useState(false);
+  const [showOtherSubject, setShowOtherSubject] = useState(false);
+
+  // Validation states
+  const [duplicateCheck, setDuplicateCheck] = useState(null);
+  const [aiClassification, setAiClassification] = useState(null);
+  const [isChecking, setIsChecking] = useState(false);
+  const [validationPassed, setValidationPassed] = useState(false);
+  const [validationError, setValidationError] = useState(null);
+  const [existingArtworkDetails, setExistingArtworkDetails] = useState(null);
 
   const {
     register,
@@ -119,56 +152,121 @@ const UploadArtworks = () => {
     watch,
     reset,
     setValue,
-    trigger
+    trigger,
   } = useForm({
     resolver: yupResolver(schema),
     defaultValues: {
       royalty_percentage: 1000,
-      price: '',
-      image: null
-    }
+      price: "",
+      medium_category: "",
+      style_category: "",
+      subject_category: "",
+      other_medium: "",
+      other_style: "",
+      other_subject: "",
+      image: null,
+    },
   });
 
-  const image = watch('image');
+  const image = watch("image");
+  const mediumCategory = watch("medium_category");
+  const styleCategory = watch("style_category");
+  const subjectCategory = watch("subject_category");
 
-  // Load TensorFlow model
+  // Load categories on component mount
   useEffect(() => {
-    const loadModel = async () => {
-      await tf.ready();
-      const loadedModel = await blazeface.load();
-      setModel(loadedModel);
-    };
-    loadModel();
-  }, []);
-
-  // Check backend status and wallet balance on component mount
-  useEffect(() => {
-    const checkBackendStatus = async () => {
-      if (!account) return;
-      
+    const loadCategories = async () => {
       try {
-        const statusResponse = await artworksAPI.getBackendStatus();
-        setBackendStatus(statusResponse);
-        
-        const balanceResponse = await artworksAPI.getWalletBalance(account);
-        setBalanceCheck(balanceResponse);
-      } catch (error) {
-        console.error('Failed to check backend status:', error);
-        setBackendStatus({ 
-          status: 'error', 
-          message: 'Cannot connect to backend API' 
+        setCategoriesLoading({ medium: true, style: true, subject: true });
+
+        const responses = await Promise.allSettled([
+          artworksAPI.getCategories("medium"),
+          artworksAPI.getCategories("style"),
+          artworksAPI.getCategories("subject"),
+        ]);
+
+        console.log("Category API responses:", responses);
+
+        const extractData = (result, type) => {
+          if (result.status === "rejected") {
+            console.error(`${type} categories failed:`, result.reason);
+            return [{ id: "error", name: `Error loading ${type}` }];
+          }
+
+          const response = result.value;
+
+          // Try different response structures
+          if (Array.isArray(response)) return response;
+          if (response?.data && Array.isArray(response.data))
+            return response.data;
+          if (response?.categories && Array.isArray(response.categories))
+            return response.categories;
+
+          console.warn(`Unexpected ${type} response:`, response);
+          return [{ id: "empty", name: `No ${type} found` }];
+        };
+
+        setCategories({
+          medium: extractData(responses[0], "medium"),
+          style: extractData(responses[1], "style"),
+          subject: extractData(responses[2], "subject"),
         });
+
+        setCategoriesLoading({ medium: false, style: false, subject: false });
+      } catch (error) {
+        console.error("Categories loading failed:", error);
+
+        // Fallback categories
+        setCategories({
+          medium: [{ id: "other", name: "Other Medium" }],
+          style: [{ id: "other", name: "Other Style" }],
+          subject: [{ id: "other", name: "Other Subject" }],
+        });
+
+        setCategoriesLoading({ medium: false, style: false, subject: false });
       }
     };
 
-    if (account && isAuthenticated) {
-      checkBackendStatus();
-    }
-  }, [account, isAuthenticated]);
+    loadCategories();
+  }, []);
+
+  // Show/hide other fields based on category selection
+  useEffect(() => {
+    setShowOtherMedium(mediumCategory === "Other Medium");
+  }, [mediumCategory]);
+
+  useEffect(() => {
+    setShowOtherStyle(styleCategory === "Other Style");
+  }, [styleCategory]);
+
+  useEffect(() => {
+    setShowOtherSubject(subjectCategory === "Other Subject");
+  }, [subjectCategory]);
+
+  // Load TensorFlow.js and BlazeFace model
+  useEffect(() => {
+    const loadBlazeFaceModel = async () => {
+      try {
+        await tf.ready();
+        console.log("TensorFlow.js loaded successfully");
+
+        const model = await blazeface.load();
+        setBlazeFaceModel(model);
+        console.log("BlazeFace model loaded successfully");
+      } catch (error) {
+        console.error("Failed to load BlazeFace model:", error);
+        setFaceDetectionError(
+          "Face detection unavailable. Proceeding with caution."
+        );
+      }
+    };
+
+    loadBlazeFaceModel();
+  }, []);
 
   // Generate preview when image changes
   useEffect(() => {
-    if (image && image instanceof File) {
+    if (image && image instanceof File && validationPassed) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setPreviewUrl(reader.result);
@@ -177,170 +275,553 @@ const UploadArtworks = () => {
     } else {
       setPreviewUrl(null);
     }
-  }, [image]);
+  }, [image, validationPassed]);
 
   const compressImage = async (file) => {
     const options = {
-      maxSizeMB: 2, // Maximum file size in MB
+      maxSizeMB: 5, // Maximum file size in MB
       maxWidthOrHeight: 2000, // Maximum width or height
       useWebWorker: true,
-      fileType: 'image/jpeg', // Convert to JPEG for better compression
+      fileType: "image/jpeg", // Convert to JPEG for better compression
     };
 
     try {
       const compressedFile = await imageCompression(file, options);
       return compressedFile;
     } catch (error) {
-      console.error('Image compression failed:', error);
-      throw new Error('Failed to compress image');
+      console.error("Image compression failed:", error);
+      throw new Error("Failed to compress image");
     }
   };
 
-  const validateTransactionData = (txData) => {
-    if (!txData) return ['Transaction data is null or undefined'];
-    
-    const errors = [];
-    if (!txData.to || txData.to === '0x0000000000000000000000000000000000000000') {
-      errors.push('Invalid contract address');
+  // Check for faces using BlazeFace
+  const checkForFaces = async (imageElement) => {
+    if (!blazeFaceModel) {
+      console.warn("BlazeFace model not loaded yet");
+      return false;
     }
-    if (!txData.data || txData.data === '0x') {
-      errors.push('Invalid transaction data');
-    }
-    return errors;
-  };
 
-  const handleRegistrationError = (error) => {
-    console.error('Registration error:', error);
-    
-    if (error.message.includes('timeout')) {
-      toast.error('Transaction is taking longer than expected. It may still be processing.');
-    }
-    else if (error.message.includes('DEMO MODE')) {
-      toast.error('Backend Configuration Error', { duration: 10000 });
-    } 
-    else if (error.message.includes('missing revert data') || error.code === 'CALL_EXCEPTION') {
-      toast.error('Smart Contract Error: Contract may not be deployed correctly', { duration: 8000 });
-    }
-    else if (error.message.includes('Network Error') || error.message.includes('CONNECTION_ERROR')) {
-      toast.error('Network connection issue - check if backend can reach Sepolia RPC');
-    }
-    else if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-      toast.error('Cannot connect to backend server');
-    } 
-    else if (error.response?.status === 404) {
-      toast.error('API endpoint not found');
-    } 
-    else if (error.response?.status === 500) {
-      toast.error('Backend server error - check server logs');
-    } 
-    else if (error.code === 4001) {
-      toast.error('Transaction cancelled by user');
-    } 
-    else if (error.message.includes('insufficient funds')) {
-      toast.error('Insufficient funds for gas fees');
-    }
-    else if (error.message.includes('nonce')) {
-      toast.error('Transaction sequence error. Please try again in a moment.');
-    }
-    else if (error.response?.data?.detail) {
-      toast.error(`API error: ${error.response.data.detail}`);
-    } 
-    else {
-      toast.error(`${error.message || 'Registration failed'}`);
-    }
-  };
-
-  const checkForLivingBeings = async (imageElement) => {
     try {
-      const model = await blazeface.load();
-      const predictions = await model.estimateFaces(imageElement, false);
-  
-      console.log('BlazeFace predictions:', predictions);
-  
+      console.log("Checking for faces...");
+
+      // Convert image to tensor
+      const tensor = tf.browser.fromPixels(imageElement);
+
+      // Run face detection
+      const predictions = await blazeFaceModel.estimateFaces(tensor, false);
+
+      // Clean up tensor
+      tensor.dispose();
+
+      console.log("Face detection results:", predictions);
+
       // Check if any faces were detected
-      if (predictions.length > 0) {
-        console.log('Face(s) detected. Upload blocked.');
-        return true; // Detected human face, treat as living being
+      if (predictions && predictions.length > 0) {
+        console.log(`Faces detected: ${predictions.length}`);
+        return true;
       } else {
-        console.log('No face detected. Upload allowed.');
-        return false; // No human detected
+        console.log("No faces detected");
+        return false;
       }
     } catch (error) {
-      console.error('Error checking for living beings:', error);
-      return false; // Fail open if error
+      console.error("Face detection error:", error);
+      setFaceDetectionError("Face detection failed. Please try again.");
+      return false; // Fail open if error occurs
+    }
+  };
+
+  // Fetch existing artwork details for duplicate
+  const fetchExistingArtworkDetails = async (artworkId) => {
+    try {
+      const response = await artworksAPI.getById(artworkId);
+      setExistingArtworkDetails(response);
+    } catch (error) {
+      console.error("Failed to fetch existing artwork details:", error);
+      // Continue without details if fetch fails
+    }
+  };
+
+  // Enhanced validation function
+  const performValidationChecks = async (file) => {
+    if (!file) return;
+
+    setIsChecking(true);
+    setDuplicateCheck(null);
+    setAiClassification(null);
+    setValidationError(null);
+    setFaceDetectionError(null);
+    setExistingArtworkDetails(null);
+    setValidationPassed(false);
+    setPreviewUrl(null);
+
+    let checksCompleted = 0;
+    const totalChecks = 3; // face, duplicate, AI
+
+    try {
+      // 1. Face detection check
+      if (blazeFaceModel) {
+        const faceCheckToast = toast.loading("Checking for human faces...");
+        try {
+          const img = new Image();
+          img.src = URL.createObjectURL(file);
+
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            setTimeout(() => reject(new Error("Image load timeout")), 10000);
+          });
+
+          const hasFaces = await checkForFaces(img);
+
+          if (hasFaces) {
+            toast.dismiss(faceCheckToast);
+            setValidationError(
+              "Images containing human faces are not allowed."
+            );
+            setValidationPassed(false);
+            URL.revokeObjectURL(img.src);
+            return;
+          }
+
+          toast.dismiss(faceCheckToast);
+          toast.success("✓ No human faces detected");
+          URL.revokeObjectURL(img.src);
+          checksCompleted++;
+        } catch (error) {
+          toast.dismiss(faceCheckToast);
+          console.error("Face check failed:", error);
+          setFaceDetectionError(
+            "Face check failed. Proceeding with other validations."
+          );
+          checksCompleted++;
+        }
+      } else {
+        checksCompleted++;
+      }
+
+      // 2. UPDATED: Enhanced duplicate check with better error handling
+      const duplicateToast = toast.loading("Checking for duplicates...");
+      let duplicateAttempts = 0;
+      const maxAttempts = 2;
+
+      while (duplicateAttempts < maxAttempts) {
+        try {
+          const formData = new FormData();
+          formData.append("image", file);
+
+          console.log(`Duplicate check attempt ${duplicateAttempts + 1}...`);
+          const duplicateResult = await artworksAPI.checkDuplicates(formData);
+
+          console.log("Duplicate check result:", duplicateResult);
+          setDuplicateCheck(duplicateResult);
+          toast.dismiss(duplicateToast);
+
+          if (duplicateResult.is_duplicate) {
+            // UPDATED: More specific error messages based on duplicate type
+            let errorMessage = "";
+            switch (duplicateResult.duplicate_type) {
+              case "exact":
+                errorMessage =
+                  "⚠️ Exact duplicate found - this image was already uploaded";
+                break;
+              case "perceptual":
+                errorMessage = `⚠️ Very similar image found (${(
+                  duplicateResult.similarity_score * 100
+                ).toFixed(1)}% similar)`;
+                break;
+              case "ai":
+                errorMessage = `⚠️ AI-detected similar content (${(
+                  duplicateResult.similarity_score * 100
+                ).toFixed(1)}% similar)`;
+                break;
+              default:
+                errorMessage = `Duplicate found: ${duplicateResult.message}`;
+            }
+
+            setValidationError(errorMessage);
+            setValidationPassed(false);
+
+            if (duplicateResult.existing_artwork_id) {
+              try {
+                await fetchExistingArtworkDetails(
+                  duplicateResult.existing_artwork_id
+                );
+              } catch (detailError) {
+                console.warn(
+                  "Failed to fetch existing artwork details:",
+                  detailError
+                );
+              }
+            }
+            return;
+          } else {
+            toast.success("✓ No duplicates found");
+            console.log("Duplicate check passed, incrementing checksCompleted");
+            checksCompleted++;
+            break;
+          }
+        } catch (error) {
+          duplicateAttempts++;
+          console.error(
+            `Duplicate check attempt ${duplicateAttempts} failed:`,
+            error
+          );
+
+          if (duplicateAttempts >= maxAttempts) {
+            toast.dismiss(duplicateToast);
+            toast.error("Duplicate check failed - proceeding with caution");
+            setDuplicateCheck({
+              is_duplicate: false,
+              message: `Check failed after ${maxAttempts} attempts: ${error.message}`,
+              duplicate_type: "error",
+            });
+            console.log(
+              "Duplicate check failed but allowing to proceed, incrementing checksCompleted"
+            );
+            checksCompleted++;
+            break;
+          } else {
+            console.log("Retrying duplicate check...");
+            toast.loading("Retrying duplicate check...");
+            await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
+          }
+        }
+      }
+
+      // 3. AI classification with retry and timeout handling
+      const aiToast = toast.loading(
+        "Analyzing content with AI... (this may take up to 2 minutes)"
+      );
+      let aiAttempts = 0;
+      const maxAiAttempts = 2;
+
+      while (aiAttempts < maxAiAttempts) {
+        try {
+          const aiFormData = new FormData();
+          aiFormData.append("image", file);
+          aiFormData.append("model", selectedAIModel);
+
+          console.log(
+            `AI classification attempt ${
+              aiAttempts + 1
+            } with model: ${selectedAIModel}...`
+          );
+
+          const aiResult = await artworksAPI.classifyAI(aiFormData);
+
+          setAiClassification(aiResult);
+          toast.dismiss(aiToast);
+
+          if (aiResult.is_ai_generated && aiResult.confidence > 0.5) {
+            setValidationError(
+              `AI-generated content detected: ${aiResult.description}`
+            );
+            setValidationPassed(false);
+            return;
+          } else {
+            toast.success("✓ Content appears to be human-created");
+
+            // NEW: Auto-fill description if image is not AI-generated and description is available
+            if (
+              aiResult.generated_description &&
+              aiResult.generated_description.trim()
+            ) {
+              setValue("description", aiResult.generated_description);
+              toast.success(
+                "✨ Description auto-generated based on artwork analysis"
+              );
+            }
+
+            checksCompleted++;
+            break;
+          }
+        } catch (error) {
+          aiAttempts++;
+          console.error(
+            `AI classification attempt ${aiAttempts} failed:`,
+            error
+          );
+
+          if (
+            error.message.includes("timeout") ||
+            error.message.includes("timed out")
+          ) {
+            toast.dismiss(aiToast);
+
+            if (aiAttempts >= maxAiAttempts) {
+              toast.error(
+                "AI classification timed out - proceeding with manual review"
+              );
+              setAiClassification({
+                is_ai_generated: false,
+                description:
+                  "Classification timed out - manual review recommended",
+                confidence: 0,
+                model_used: selectedAIModel,
+              });
+              checksCompleted++;
+              break;
+            } else {
+              toast.loading(
+                "AI classification timed out, retrying with different approach..."
+              );
+              await new Promise((resolve) => setTimeout(resolve, 3000));
+            }
+          } else {
+            if (aiAttempts >= maxAiAttempts) {
+              toast.dismiss(aiToast);
+              toast.error(
+                "AI classification failed - proceeding with caution"
+              );
+              setAiClassification({
+                is_ai_generated: false,
+                description: `Classification failed: ${error.message}`,
+                confidence: 0,
+                model_used: selectedAIModel,
+              });
+              checksCompleted++;
+              break;
+            } else {
+              console.log("Retrying AI classification...");
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
+          }
+        }
+      }
+
+      // UPDATED: Final validation with better logging
+      console.log(
+        `Final validation: ${checksCompleted}/${totalChecks} checks completed`
+      );
+
+      if (checksCompleted >= 2) {
+        // At least 2 out of 3 checks passed
+        setValidationPassed(true);
+        setValidationError(null);
+
+        // Generate preview
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPreviewUrl(reader.result);
+        };
+        reader.readAsDataURL(file);
+
+        toast.success(
+          `✓ Validation complete! (${checksCompleted}/${totalChecks} checks passed)`
+        );
+      } else {
+        setValidationError(
+          "Too many validation checks failed. Please try a different image."
+        );
+      }
+    } catch (error) {
+      toast.error(`Validation system error: ${error.message}`);
+      setValidationError(`Validation system error: ${error.message}`);
+      console.error("Validation system error:", error);
+    } finally {
+      setIsChecking(false);
+    }
+  };
+
+  // Enhanced submit function with categories and price
+  const onSubmit = async (data) => {
+    if (!isCorrectNetwork || !account) {
+      toast.error(
+        !isCorrectNetwork
+          ? "Please switch to Sepolia testnet first"
+          : "Wallet not connected"
+      );
+      return;
+    }
+
+    if (!validationPassed) {
+      toast.error("Image validation failed. Cannot proceed with upload.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Compress image before upload
+      const compressedImage = await compressImage(data.image);
+
+      // Create FormData with compressed image, categories, and price
+      const formData = new FormData();
+      formData.append("title", data.title);
+      formData.append("description", data.description || "");
+      formData.append("royalty_percentage", data.royalty_percentage.toString());
+      formData.append("price", data.price.toString()); // NEW: Add price
+      formData.append("medium_category", data.medium_category); // NEW: Add categories
+      formData.append("style_category", data.style_category);
+      formData.append("subject_category", data.subject_category);
+      formData.append("ai_model", selectedAIModel);
+      formData.append("image", compressedImage, data.image.name);
+
+      // NEW: Add other category fields if they exist
+      if (data.other_medium) {
+        formData.append("other_medium", data.other_medium);
+      }
+      if (data.other_style) {
+        formData.append("other_style", data.other_style);
+      }
+      if (data.other_subject) {
+        formData.append("other_subject", data.other_subject);
+      }
+
+      // Phase 1: Register with enhanced validation
+      const prepToast = toast.loading("Processing and registering artwork...");
+
+      let preparation;
+      try {
+        preparation = await artworksAPI.registerWithImage(formData);
+      } catch (error) {
+        toast.dismiss(prepToast);
+
+        if (
+          error.message.includes("timeout") ||
+          error.message.includes("timed out")
+        ) {
+          throw new Error(
+            "Upload timed out. Please try with a smaller image or try again later."
+          );
+        } else if (error.message.includes("404")) {
+          throw new Error(
+            "Server endpoint not found. Please check if the server is running correctly."
+          );
+        } else if (error.message.includes("Registration endpoint not found")) {
+          throw new Error(
+            "Server configuration error. Please contact support."
+          );
+        } else {
+          throw error;
+        }
+      }
+
+      toast.dismiss(prepToast);
+
+      // Check for rejection responses
+      if (preparation.status === "rejected") {
+        if (preparation.reason === "duplicate") {
+          throw new Error(`Duplicate detected: ${preparation.message}`);
+        } else if (preparation.reason === "ai_generated") {
+          throw new Error(`AI-generated content: ${preparation.message}`);
+        } else {
+          throw new Error(`Upload rejected: ${preparation.message}`);
+        }
+      }
+
+      if (!preparation.transaction_data) {
+        throw new Error("Backend did not return transaction data");
+      }
+
+      setCurrentStep("blockchain");
+
+      // Phase 2: Send blockchain transaction
+      const txToast = toast.loading("Sending transaction...");
+      const txResponse = await sendTransaction({
+        ...preparation.transaction_data,
+        from: account,
+        gas: 500000,
+      });
+      toast.dismiss(txToast);
+
+      // Phase 3: Confirm registration (include categories and price)
+      const finalizingToast = toast.loading("Finalizing registration...");
+      try {
+        const confirmation = await artworksAPI.confirmRegistration({
+          tx_hash: txResponse.hash,
+          from_address: account,
+          metadata_uri: preparation.metadata_uri,
+          image_uri: preparation.image_uri,
+          image_metadata: preparation.image_metadata,  
+          royalty_percentage: data.royalty_percentage,
+          price: data.price,
+          title: data.title,
+          description: data.description,
+          categories: {
+            medium: data.medium_category,
+            style: data.style_category,
+            subject: data.subject_category,
+            other_medium: data.other_medium || null,
+            other_style: data.other_style || null,
+            other_subject: data.other_subject || null,
+          },
+        });
+
+        if (!confirmation.success) {
+          console.warn("Registration confirmation had issues:", confirmation);
+        }
+
+        toast.dismiss(finalizingToast);
+      } catch (confirmError) {
+        console.warn(
+          "Registration confirmation failed, but transaction was successful:",
+          confirmError
+        );
+        toast.dismiss(finalizingToast);
+      }
+
+      // Success
+      setTransactionHash(txResponse.hash);
+      toast.success("Artwork registered successfully!");
+      reset();
+      setCurrentStep("complete");
+    } catch (error) {
+      toast.dismiss();
+      console.error("Registration error:", error);
+
+      if (error.message.includes("Duplicate detected")) {
+        toast.error(
+          "Duplicate image detected. Please choose a different image."
+        );
+      } else if (error.message.includes("AI-generated content")) {
+        toast.error(
+          "AI-generated content is not allowed. Please upload original artwork."
+        );
+      } else if (
+        error.message.includes("timeout") ||
+        error.message.includes("timed out")
+      ) {
+        toast.error(
+          "Upload timed out. Please try with a smaller image or check your internet connection."
+        );
+      } else if (
+        error.message.includes("404") ||
+        error.message.includes("not found")
+      ) {
+        toast.error(
+          "Server configuration error. Please ensure the backend server is running correctly."
+        );
+      } else {
+        toast.error(`Upload failed: ${error.message}`);
+      }
+
+      setCurrentStep("details");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleFileChange = async (e) => {
-    setError(null);
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      
-      // Create a preview URL
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        // Create an image element for TensorFlow.js
-        const img = new Image();
-        img.src = reader.result;
-        img.onload = async () => {
-          try {
-            const containsLivingBeings = await checkForLivingBeings(img);
-            if (containsLivingBeings) {
-              setError('Images containing living beings are not allowed.');
-              setUploadedFile(null);
-              setPreviewUrl(null);
-              setValue('image', null);
-            } else {
-              setUploadedFile(file);
-              setPreviewUrl(reader.result);
-              setValue('image', file, { shouldValidate: true });
-            }
-          } catch (err) {
-            setError('Error analyzing image. Please try again.');
-            setUploadedFile(null);
-            setPreviewUrl(null);
-            setValue('image', null);
-          }
-        };
-      };
-      reader.readAsDataURL(file);
+      setUploadedFile(file);
+      setValue("image", file, { shouldValidate: true });
+
+      // Automatically perform validation checks
+      await performValidationChecks(file);
     }
   };
 
   const handleDrop = async (e) => {
     e.preventDefault();
-    setError(null);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
-      
-      // Create a preview URL
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        // Create an image element for TensorFlow.js
-        const img = new Image();
-        img.src = reader.result;
-        img.onload = async () => {
-          try {
-            const containsLivingBeings = await checkForLivingBeings(img);
-            if (containsLivingBeings) {
-              setError('Images containing living beings are not allowed.');
-              setUploadedFile(null);
-              setPreviewUrl(null);
-              setValue('image', null);
-            } else {
-              setUploadedFile(file);
-              setPreviewUrl(reader.result);
-              setValue('image', file, { shouldValidate: true });
-            }
-          } catch (err) {
-            setError('Error analyzing image. Please try again.');
-            setUploadedFile(null);
-            setPreviewUrl(null);
-            setValue('image', null);
-          }
-        };
-      };
-      reader.readAsDataURL(file);
+      setUploadedFile(file);
+      setValue("image", file, { shouldValidate: true });
+
+      // Automatically perform validation checks
+      await performValidationChecks(file);
     }
   };
 
@@ -351,142 +832,170 @@ const UploadArtworks = () => {
   const handleRemoveFile = () => {
     setUploadedFile(null);
     setPreviewUrl(null);
-    setError(null);
-    setValue('image', null);
+    setValue("image", null);
+    setDuplicateCheck(null);
+    setAiClassification(null);
+    setValidationPassed(false);
+    setValidationError(null);
+    setFaceDetectionError(null);
+    setExistingArtworkDetails(null);
+  };
+
+  const handleRetryValidation = () => {
+    if (uploadedFile) {
+      performValidationChecks(uploadedFile);
+    }
   };
 
   const handleUpload = async () => {
-    // Validate the image field
-    const isValid = await trigger('image');
-    if (isValid) {
-      setCurrentStep('details');
+    const isValid = await trigger("image");
+    if (isValid && validationPassed) {
+      setCurrentStep("details");
+    } else if (isValid && !validationPassed) {
+      toast.error(
+        "Please wait for validation checks to complete or fix validation issues"
+      );
     }
   };
 
-  const onSubmit = async (data) => {
-    if (!isCorrectNetwork || !account) {
-      toast.error(!isCorrectNetwork 
-        ? 'Please switch to Sepolia testnet first' 
-        : 'Wallet not connected');
-      return;
-    }
+  // Validation status component
+  const ValidationStatus = ({ check, title, type }) => {
+    if (!check && !isChecking) return null;
 
-    setIsSubmitting(true);
-    setDebugInfo(null);
-    
-    try {
-      // Compress image before upload
-      const compressedImage = await compressImage(data.image);
-      
-      // Create FormData with compressed image
-      const formData = new FormData();
-      formData.append('title', data.title);
-      formData.append('description', data.description || '');
-      formData.append('royalty_percentage', data.royalty_percentage.toString());
-      formData.append('price', data.price.toString());
-      formData.append('license_type', selectedLicense);
-      formData.append('image', compressedImage, data.image.name);
+    const getStatusColor = () => {
+      if (isChecking) return "text-blue-500";
+      if (type === "duplicate" && check?.is_duplicate) return "text-red-500";
+      if (type === "ai" && check?.is_ai_generated) return "text-red-500";
+      return "text-green-500";
+    };
 
-      // Phase 1: Prepare registration with image upload
-      const prepToast = toast.loading('Uploading image and preparing registration...');
-      const preparation = await artworksAPI.registerWithImage(formData);
-      toast.dismiss(prepToast);
+    const getStatusIcon = () => {
+      if (isChecking) return <CircularProgress size={16} />;
+      if (type === "duplicate" && check?.is_duplicate)
+        return <XCircle className="w-5 h-5" />;
+      if (type === "ai" && check?.is_ai_generated)
+        return <XCircle className="w-5 h-5" />;
+      return <CheckCircle className="w-5 h-5" />;
+    };
 
-      setDebugInfo({
-        step: 'preparation',
-        data: preparation,
-        request_data: {
-          title: data.title,
-          description: data.description,
-          royalty_percentage: data.royalty_percentage,
-          price: data.price,
-          license_type: selectedLicense,
-          account: account
-        }
-      });
-
-      if (!preparation.transaction_data) {
-        throw new Error('Backend did not return transaction data');
+    const getStatusText = () => {
+      if (isChecking) return "Checking...";
+      if (type === "duplicate") {
+        return check?.is_duplicate
+          ? `Duplicate found: ${check.message}`
+          : "No duplicates found";
       }
-
-      // Validate transaction data
-      const validationErrors = validateTransactionData(preparation.transaction_data);
-      if (validationErrors.length > 0) {
-        throw new Error(`Invalid transaction data: ${validationErrors.join(', ')}`);
+      if (type === "ai") {
+        return check?.is_ai_generated
+          ? `AI-generated: ${check.description} (${(
+              check.confidence * 100
+            ).toFixed(1)}% confidence)`
+          : "Human-created content";
       }
-
-      // Check for demo mode addresses
-      if (preparation.transaction_data.to && preparation.transaction_data.to.startsWith('0x1234567890')) {
-        throw new Error('Backend is in demo mode - check contract configuration');
-      }
-
-      setCurrentStep('blockchain');
-
-      // Phase 2: Send transaction with longer timeout
-      const txToast = toast.loading('Sending transaction... (This may take 1-2 minutes on testnet)');
-      const txResponse = await sendTransaction({
-        ...preparation.transaction_data,
-        from: account,
-        gas: 500000 // Higher gas for registration
-      });
-      toast.dismiss(txToast);
-
-      // Phase 3: Confirm registration (non-blocking)
-      const finalizingToast = toast.loading('Finalizing registration...');
-      try {
-        const confirmation = await artworksAPI.confirmRegistration({
-          tx_hash: txResponse.hash,
-          from_address: account,
-          metadata_uri: preparation.metadata_uri,
-          royalty_percentage: data.royalty_percentage,
-          title: data.title,
-          description: data.description,
-          price: data.price,
-          license_type: selectedLicense
-        });
-
-        if (!confirmation.success) {
-          console.warn('Registration confirmation had issues:', confirmation);
-        }
-        
-        toast.dismiss(finalizingToast);
-        
-      } catch (confirmError) {
-        console.warn('Registration confirmation failed, but transaction was successful:', confirmError);
-        toast.dismiss(finalizingToast);
-        // Non-critical error, continue
-      }
-
-      // Success
-      setTransactionHash(txResponse.hash);
-      toast.success('Artwork registration submitted to blockchain!');
-      reset();
-      setCurrentStep('complete');
-      
-    } catch (error) {
-      toast.dismiss();
-      handleRegistrationError(error);
-      setCurrentStep('details');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const StatusIndicator = ({ title, message, type = 'info' }) => {
-    const colors = {
-      success: 'bg-green-50 border-green-200 text-green-800',
-      error: 'bg-red-50 border-red-200 text-red-800',
-      warning: 'bg-yellow-50 border-yellow-200 text-yellow-800',
-      info: 'bg-blue-50 border-blue-200 text-blue-800'
+      return "";
     };
 
     return (
-      <div className={`p-4 rounded-lg border ${colors[type]} mb-4`}>
-        <div className="flex items-center">
-          <AlertCircle className="w-5 h-5 mr-2" />
-          <h4 className="font-semibold">{title}</h4>
+      <div className={`flex items-center mt-2 text-sm ${getStatusColor()}`}>
+        <span className="mr-2">{getStatusIcon()}</span>
+        <span>
+          <strong>{title}:</strong> {getStatusText()}
+        </span>
+      </div>
+    );
+  };
+
+  // Component to show existing artwork details for duplicates
+  const ExistingArtworkDetails = ({ artwork }) => {
+    if (!artwork) return null;
+
+    return (
+      <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <h4 className="font-medium text-yellow-800 mb-2">
+          ⚠️ Similar Artwork Already Exists
+        </h4>
+
+        <div className="flex flex-col sm:flex-row gap-4">
+          {artwork.image_uri && (
+            <div className="w-32 h-32 flex-shrink-0">
+              <img
+                src={artwork.image_uri}
+                alt="Existing artwork"
+                className="w-full h-full object-cover rounded"
+              />
+            </div>
+          )}
+
+          <div className="flex-1">
+            <h5 className="font-semibold text-gray-900">
+              {artwork.title || "Untitled"}
+            </h5>
+            {artwork.description && (
+              <p className="text-sm text-gray-600 mt-1">
+                {artwork.description}
+              </p>
+            )}
+            <div className="mt-2 text-xs text-gray-500">
+              <p>
+                Creator: {artwork.creator_address?.slice(0, 8)}...
+                {artwork.creator_address?.slice(-6)}
+              </p>
+              <p>Token ID: {artwork.token_id}</p>
+              {artwork.created_at && (
+                <p>
+                  Created: {new Date(artwork.created_at).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
-        <p className="text-sm mt-1">{message}</p>
+
+        <p className="mt-3 text-sm text-yellow-700">
+          Please upload a different, original artwork to avoid duplication.
+        </p>
+      </div>
+    );
+  };
+
+  // Component to show validation error instead of preview
+  const ValidationErrorDisplay = ({
+    error,
+    duplicateCheck,
+    existingArtwork,
+  }) => {
+    if (!error) return null;
+
+    return (
+      <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+        <div className="flex items-center text-red-800 mb-2">
+          <AlertCircle className="w-5 h-5 mr-2" />
+          <h4 className="font-medium">Upload Rejected</h4>
+        </div>
+        <p className="text-red-700">{error}</p>
+        {duplicateCheck?.is_duplicate && (
+          <div className="mt-3">
+            <p className="text-sm text-red-600">
+              <strong>Similarity Score:</strong>{" "}
+              {duplicateCheck.similarity_score
+                ? `${(duplicateCheck.similarity_score * 100).toFixed(1)}%`
+                : "High similarity detected"}
+            </p>
+            <p className="text-sm text-red-600">
+              <strong>Detection Type:</strong> {duplicateCheck.duplicate_type}
+            </p>
+          </div>
+        )}
+        ;
+        {existingArtwork && (
+          <ExistingArtworkDetails artwork={existingArtwork} />
+        )}
+        <div className="mt-3 p-3 bg-red-100 rounded">
+          <p className="text-xs text-red-600">
+            <strong>Note:</strong> Uploading duplicate or AI-generated content
+            violates our platform policies. Please ensure your artwork is
+            original and created by you.
+          </p>
+        </div>
       </div>
     );
   };
@@ -494,11 +1003,11 @@ const UploadArtworks = () => {
   const renderUploadStep = () => (
     <div className="mt-6">
       <div
-        className={`
-          border-2 border-dashed rounded-lg p-12 text-center
-          ${uploadedFile ? 'border-purple-800' : 'border-gray-300 hover:border-gray-400'}
-          transition-colors duration-200
-        `}
+        className={`border-2 border-dashed rounded-lg p-8 text-center ${
+          uploadedFile && validationPassed
+            ? "border-purple-800"
+            : "border-gray-300 hover:border-gray-400"
+        } transition-colors duration-200`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
@@ -523,31 +1032,34 @@ const UploadArtworks = () => {
               <p className="pl-1">or drag and drop</p>
             </div>
             <p className="text-xs text-purple-500 mt-2">
-              PNG, JPG, GIF up to 10MB (No images containing living beings)
+              PNG, JPG, GIF up to 10MB (No images containing human faces)
             </p>
-            {error && (
-              <p className="mt-2 text-sm text-red-600">{error}</p>
-            )}
-            {errors.image && (
-              <p className="mt-2 text-sm text-red-600">{errors.image.message}</p>
-            )}
           </div>
         ) : (
           <div>
-            <div className="relative mx-auto w-64 h-64 mb-4">
-              <img
-                src={previewUrl || ''}
-                alt="Preview"
-                className="w-full h-full object-contain rounded"
-              />
-              <button
-                type="button"
-                className="absolute top-0 right-0 -mt-2 -mr-2 bg-red-600 rounded-full p-1 text-white shadow-sm hover:bg-red-700 focus:outline-none"
-                onClick={handleRemoveFile}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+            {validationPassed && previewUrl ? (
+              <div className="relative mx-auto w-64 h-64 mb-4">
+                <img
+                  src={previewUrl || ""}
+                  alt="Preview"
+                  className="w-full h-full object-contain rounded"
+                />
+                <button
+                  type="button"
+                  className="absolute top-0 right-0 -mt-2 -mr-2 bg-red-600 rounded-full p-1 text-white shadow-sm hover:bg-red-700 focus:outline-none"
+                  onClick={handleRemoveFile}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="relative mx-auto w-64 h-64 mb-4 bg-gray-100 rounded flex items-center justify-center">
+                <div className="text-center text-gray-400">
+                  <ImageIcon className="mx-auto h-12 w-12" />
+                  <p className="mt-2 text-sm">Validation in progress...</p>
+                </div>
+              </div>
+            )}
             <p className="text-sm text-gray-600">{uploadedFile.name}</p>
             <p className="text-xs text-gray-500 mt-1">
               {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB
@@ -556,14 +1068,87 @@ const UploadArtworks = () => {
         )}
       </div>
 
-      {uploadedFile && (
+      {/* Show validation error instead of preview when validation fails */}
+      {uploadedFile && validationError && (
+        <ValidationErrorDisplay
+          error={validationError}
+          duplicateCheck={duplicateCheck}
+          existingArtwork={existingArtworkDetails}
+        />
+      )}
+
+      {/* Validation Results */}
+      {uploadedFile && !validationError && (
+        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+          <h4 className="font-medium text-gray-900 mb-2">Validation Results</h4>
+
+          {/* Face Detection Status */}
+          {faceDetectionError && (
+            <div className="flex items-center mt-2 text-sm text-yellow-600">
+              <AlertTriangle className="w-4 h-4 mr-2" />
+              <span>{faceDetectionError}</span>
+            </div>
+          )}
+
+          <ValidationStatus
+            check={duplicateCheck}
+            title="Duplicate Check"
+            type="duplicate"
+          />
+
+          <ValidationStatus
+            check={aiClassification}
+            title="AI Detection"
+            type="ai"
+          />
+
+          {isChecking && (
+            <div className="mt-2 flex items-center text-sm text-blue-600">
+              <CircularProgress size={16} className="mr-2" />
+              <span>Running validation checks...</span>
+            </div>
+          )}
+
+          {!isChecking && !validationPassed && !validationError && (
+            <button
+              type="button"
+              onClick={handleRetryValidation}
+              className="mt-2 text-sm text-purple-600 hover:text-purple-800"
+            >
+              Retry validation
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* AI Model Selection */}
+      <div className="mt-4">
+        <InputLabel htmlFor="ai-model">AI Detection Model</InputLabel>
+        <select
+          id="ai-model"
+          className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md"
+          value={selectedAIModel}
+          onChange={(e) => setSelectedAIModel(e.target.value)}
+        >
+          {aiModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-gray-500">
+          Select which AI model to use for content detection
+        </p>
+      </div>
+
+      {uploadedFile && validationPassed && (
         <div className="mt-6">
-          <Button 
-            variant="contained" 
-            color="secondary" 
+          <Button
+            variant="contained"
+            color="secondary"
             onClick={handleUpload}
             fullWidth
-            className='!font-bold'
+            className="!font-bold"
           >
             Continue to Details
           </Button>
@@ -579,7 +1164,7 @@ const UploadArtworks = () => {
         <Input
           id="title"
           type="text"
-          {...register('title')}
+          {...register("title")}
           error={!!errors.title}
           fullWidth
         />
@@ -589,15 +1174,19 @@ const UploadArtworks = () => {
       </div>
 
       <div>
-        <InputLabel htmlFor="description">Description</InputLabel>
+        <InputLabel htmlFor="description">Description *</InputLabel>
         <textarea
           id="description"
           rows={4}
           className="shadow-sm focus:ring-purple-500 focus:border-purple-500 block w-full sm:text-sm border-gray-300 rounded-md"
-          {...register('description')}
+          {...register("description")}
+          error={!!errors.description}
+          fullWidth
         />
         {errors.description && (
-          <p className="mt-1 text-sm text-red-600">{errors.description.message}</p>
+          <p className="mt-1 text-sm text-red-600">
+            {errors.description.message}
+          </p>
         )}
       </div>
 
@@ -607,7 +1196,7 @@ const UploadArtworks = () => {
           id="price"
           type="number"
           step="0.001"
-          {...register('price')}
+          {...register("price")}
           error={!!errors.price}
           fullWidth
         />
@@ -617,11 +1206,13 @@ const UploadArtworks = () => {
       </div>
 
       <div>
-        <InputLabel htmlFor="royalty_percentage">Royalty Percentage *</InputLabel>
+        <InputLabel htmlFor="royalty_percentage">
+          Royalty Percentage *
+        </InputLabel>
         <select
           id="royalty_percentage"
           className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md"
-          {...register('royalty_percentage')}
+          {...register("royalty_percentage")}
         >
           {loyaltyPercentage.map((option) => (
             <option key={option.id} value={option.value}>
@@ -630,36 +1221,230 @@ const UploadArtworks = () => {
           ))}
         </select>
         {errors.royalty_percentage && (
-          <p className="mt-1 text-sm text-red-600">{errors.royalty_percentage.message}</p>
+          <p className="mt-1 text-sm text-red-600">
+            {errors.royalty_percentage.message}
+          </p>
         )}
       </div>
 
-      {/* <div>
-        <InputLabel htmlFor="license">License Terms</InputLabel>
-        <select
-          id="license"
-          className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-purple-500 focus:border-purple-500 sm:text-sm rounded-md"
-          value={selectedLicense}
-          onChange={(e) => setSelectedLicense(e.target.value)}
-        >
-          {licenseTermsOptions.map((license) => (
-            <option key={license.id} value={license.id}>
-              {license.name} - ${license.price}
-            </option>
-          ))}
-        </select>
-        <p className="mt-2 text-sm text-gray-500">
-          {licenseTermsOptions.find(l => l.id === selectedLicense)?.description}
-        </p>
-      </div> */}
+      {/* NEW: Category Selection */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Medium Category */}
+        <div>
+          <FormControl fullWidth>
+            <InputLabel id="medium-category-label">
+              🎨 Medium / Technique *
+            </InputLabel>
+            <Select
+              id="medium_category"
+              labelId="medium-category-label"
+              label="🎨 Medium / Technique *"
+              {...register("medium_category")}
+              error={!!errors.medium_category}
+              disabled={categoriesLoading.medium}
+            >
+              <MenuItem value="" disabled>
+                {categoriesLoading.medium ? "Loading..." : "Select a medium"}
+              </MenuItem>
+              {categories.medium.map((category) => (
+                <MenuItem
+                  key={category.id || category.name}
+                  value={category.name}
+                >
+                  {category.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {errors.medium_category && (
+            <p className="mt-1 text-sm text-red-600">
+              {errors.medium_category.message}
+            </p>
+          )}
+          {showOtherMedium && (
+            <div className="mt-2">
+              <InputLabel htmlFor="other_medium">
+                Specify Other Medium
+              </InputLabel>
+              <Input
+                id="other_medium"
+                type="text"
+                {...register("other_medium")}
+                fullWidth
+                placeholder="Enter your medium"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Style Category */}
+        <div>
+          <FormControl fullWidth>
+            <InputLabel id="style-category-label">
+              🖼 Style / Movement *
+            </InputLabel>
+            <Select
+              id="style_category"
+              labelId="style-category-label"
+              label="🖼 Style / Movement *"
+              {...register("style_category")}
+              error={!!errors.style_category}
+              disabled={categoriesLoading.style}
+            >
+              <MenuItem value="" disabled>
+                {categoriesLoading.style ? "Loading..." : "Select a style"}
+              </MenuItem>
+              {categories.style.map((category) => (
+                <MenuItem
+                  key={category.id || category.name}
+                  value={category.name}
+                >
+                  {category.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {errors.style_category && (
+            <p className="mt-1 text-sm text-red-600">
+              {errors.style_category.message}
+            </p>
+          )}
+          {showOtherStyle && (
+            <div className="mt-2">
+              <InputLabel htmlFor="other_style">Specify Other Style</InputLabel>
+              <Input
+                id="other_style"
+                type="text"
+                {...register("other_style")}
+                fullWidth
+                placeholder="Enter your style"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Subject Category */}
+        <div>
+          <FormControl fullWidth>
+            <InputLabel id="subject-category-label">
+              🌍 Subject Matter *
+            </InputLabel>
+            <Select
+              id="subject_category"
+              labelId="subject-category-label"
+              label="🌍 Subject Matter *"
+              {...register("subject_category")}
+              error={!!errors.subject_category}
+              disabled={categoriesLoading.subject}
+            >
+              <MenuItem value="" disabled>
+                {categoriesLoading.subject ? "Loading..." : "Select a subject"}
+              </MenuItem>
+              {categories.subject.map((category) => (
+                <MenuItem
+                  key={category.id || category.name}
+                  value={category.name}
+                >
+                  {category.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {errors.subject_category && (
+            <p className="mt-1 text-sm text-red-600">
+              {errors.subject_category.message}
+            </p>
+          )}
+          {showOtherSubject && (
+            <div className="mt-2">
+              <InputLabel htmlFor="other_subject">
+                Specify Other Subject
+              </InputLabel>
+              <Input
+                id="other_subject"
+                type="text"
+                {...register("other_subject")}
+                fullWidth
+                placeholder="Enter your subject"
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Show error message if categories failed to load */}
+      {(categories.medium.some((cat) => cat.id === "error") ||
+        categories.style.some((cat) => cat.id === "error") ||
+        categories.subject.some((cat) => cat.id === "error")) && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-600">
+            Failed to load categories. Please refresh the page or try again
+            later.
+          </p>
+        </div>
+      )}
+
+      {/* Validation Summary */}
+      {(duplicateCheck || aiClassification) && (
+        <div className="p-4 bg-gray-50 rounded-lg">
+          <h4 className="font-medium text-gray-900 mb-2">Validation Summary</h4>
+          <div className="space-y-2 text-sm">
+            {/* Face Detection Summary */}
+            {faceDetectionError && (
+              <div className="flex items-center text-yellow-600">
+                <AlertTriangle className="w-4 h-4 mr-2" />
+                <span>Face Detection: Warning - {faceDetectionError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center">
+              {duplicateCheck?.is_duplicate ? (
+                <XCircle className="w-4 h-4 text-red-500 mr-2" />
+              ) : (
+                <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+              )}
+              <span>
+                Duplicate Check:{" "}
+                {duplicateCheck?.is_duplicate ? "Failed" : "Passed"}
+              </span>
+            </div>
+            <div className="flex items-center">
+              {aiClassification?.is_ai_generated ? (
+                <XCircle className="w-4 h-4 text-red-500 mr-2" />
+              ) : (
+                <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+              )}
+              <span>
+                AI Detection:{" "}
+                {aiClassification?.is_ai_generated ? "Failed" : "Passed"}
+              </span>
+            </div>
+            {aiClassification?.is_ai_generated && (
+              <div className="text-red-500 text-xs ml-6">
+                Confidence: {(aiClassification.confidence * 100).toFixed(1)}% -{" "}
+                {aiClassification.description}
+              </div>
+            )}
+            {duplicateCheck?.is_duplicate && (
+              <div className="text-red-500 text-xs ml-6">
+                Similarity:{" "}
+                {duplicateCheck.similarity_score
+                  ? (duplicateCheck.similarity_score * 100).toFixed(1) + "%"
+                  : "High"}{" "}
+                - {duplicateCheck.message}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <Button
         type="submit"
-        variant="contained" 
+        variant="contained"
         color="secondary"
         fullWidth
-        className='!font-bold'
-        disabled={isSubmitting}
+        className="!font-bold"
+        disabled={isSubmitting || !validationPassed}
       >
         {isSubmitting ? (
           <div className="flex items-center justify-center">
@@ -667,7 +1452,7 @@ const UploadArtworks = () => {
             <span className="ml-2">Registering...</span>
           </div>
         ) : (
-          'Register Your Artwork'
+          "Register Your Artwork"
         )}
       </Button>
     </form>
@@ -676,28 +1461,40 @@ const UploadArtworks = () => {
   const renderBlockchainStep = () => (
     <div className="mt-8 text-center">
       <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-purple-800 mx-auto"></div>
-      <h3 className="mt-6 text-lg font-medium text-gray-900">Registering your artwork on blockchain</h3>
-      <p className="mt-2 text-sm text-gray-500">This may take a few moments...</p>
-      
+      <h3 className="mt-6 text-lg font-medium text-gray-900">
+        Registering your artwork on blockchain
+      </h3>
+      <p className="mt-2 text-sm text-gray-500">
+        This may take a few moments...
+      </p>
+
       <div className="mt-6 flex justify-center space-x-4">
         <div className="text-center">
           <div className="flex items-center justify-center w-8 h-8 mx-auto rounded-full bg-green-100 text-green-600">
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              <path
+                fillRule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
             </svg>
           </div>
           <p className="mt-1 text-xs text-gray-500">Upload</p>
         </div>
-        
+
         <div className="text-center">
           <div className="flex items-center justify-center w-8 h-8 mx-auto rounded-full bg-green-100 text-green-600">
             <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              <path
+                fillRule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
             </svg>
           </div>
           <p className="mt-1 text-xs text-gray-500">Details</p>
         </div>
-        
+
         <div className="text-center">
           <div className="flex items-center justify-center w-8 h-8 mx-auto rounded-full bg-purple-100 text-purple-600">
             <span className="text-sm font-bold">3</span>
@@ -711,8 +1508,18 @@ const UploadArtworks = () => {
   const renderCompleteStep = () => (
     <div className="mt-8 text-center">
       <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
-        <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+        <svg
+          className="h-6 w-6 text-green-600"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M5 13l4 4L19 7"
+          />
         </svg>
       </div>
       <h3 className="mt-6 text-lg font-medium text-gray-900">
@@ -721,37 +1528,50 @@ const UploadArtworks = () => {
       <p className="mt-2 text-sm text-gray-500">
         Your artwork is now on the blockchain and ready to be licensed
       </p>
-      
+
       {transactionHash && (
         <div className="mt-4 p-3 bg-gray-50 rounded-lg">
           <p className="text-xs text-gray-600">Transaction Hash:</p>
           <p className="text-xs font-mono text-gray-800 break-all">
             {transactionHash}
           </p>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(transactionHash);
+              toast.success("Transaction hash copied to clipboard");
+            }}
+            className="mt-1 text-xs text-purple-600 hover:text-purple-800 flex items-center justify-center"
+          >
+            <Copy className="w-3 h-3 mr-1" /> Copy
+          </button>
         </div>
       )}
-    
+
       <div className="mt-6 flex space-x-4">
         <Button
-          variant="outlined" 
+          variant="outlined"
           color="secondary"
           fullWidth
           onClick={() => {
-            setCurrentStep('upload');
+            setCurrentStep("upload");
             reset();
             setUploadedFile(null);
             setPreviewUrl(null);
+            setDuplicateCheck(null);
+            setAiClassification(null);
+            setValidationPassed(false);
           }}
-          className='!font-bold'
+          className="!font-bold"
         >
           Upload Another
         </Button>
         <Button
-          variant="contained" 
+          variant="contained"
           color="secondary"
           fullWidth
-          onClick={() => navigate('/dashboard/artworks')}
-          className='!font-bold !ms-2'
+          onClick={() => navigate("/dashboard/artworks")}
+          className="!font-bold !ms-2"
         >
           View My Artworks
         </Button>
@@ -779,52 +1599,14 @@ const UploadArtworks = () => {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Upload Artwork</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Register your digital creation on the blockchain to protect your ownership
+          Register your digital creation on the blockchain to protect your
+          ownership
         </p>
         <p className="mt-1 text-sm text-red-500">
-          *Note: Please do not upload artworks containing living beings or cartoons. It will be rejected while uploading or may be by admin later.
+          *Note: Please do not upload artworks containing human faces or
+          AI-generated content.
         </p>
       </div>
-
-      {/* Status Indicators */}
-      {/* <div className="mb-8 space-y-4">
-        {backendStatus && (
-          <StatusIndicator
-            title="Backend Status"
-            message={backendStatus.message}
-            type={backendStatus.status === 'success' ? 'success' : 'error'}
-          />
-        )}
-
-        {balanceCheck && (
-          <StatusIndicator
-            title="Wallet Balance"
-            message={balanceCheck.sufficient_balance ? 
-              `Sufficient balance: ${balanceCheck.balance_eth} ETH` :
-              `Insufficient balance: ${balanceCheck.balance_eth} ETH`}
-            type={balanceCheck.sufficient_balance ? 'success' : 'error'}
-          />
-        )}
-
-        {!isCorrectNetwork && (
-          <StatusIndicator
-            title="Network Error"
-            message="Please switch to Sepolia testnet"
-            type="error"
-          />
-        )}
-      </div> */}
-
-      {debugInfo && (
-        <div className="mb-8 bg-gray-50 border border-gray-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">
-            Debug Information
-          </h3>
-          <pre className="text-xs text-gray-600 overflow-auto max-h-64 bg-white p-4 rounded border">
-            {JSON.stringify(debugInfo, null, 2)}
-          </pre>
-        </div>
-      )}
 
       <div className="bg-white shadow rounded-lg overflow-hidden">
         {/* Progress Steps */}
@@ -833,13 +1615,17 @@ const UploadArtworks = () => {
             <button
               type="button"
               className={`text-sm font-medium ${
-                currentStep === 'upload' ? 'text-purple-800' : 'text-gray-500'
+                currentStep === "upload" ? "text-purple-800" : "text-gray-500"
               }`}
               disabled={true}
             >
-              <span className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
-                currentStep === 'upload' ? 'bg-purple-800 text-white' : 'bg-gray-200 text-gray-600'
-              }`}>
+              <span
+                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
+                  currentStep === "upload"
+                    ? "bg-purple-800 text-white"
+                    : "bg-gray-200 text-gray-600"
+                }`}
+              >
                 1
               </span>
               Upload
@@ -848,13 +1634,17 @@ const UploadArtworks = () => {
             <button
               type="button"
               className={`text-sm font-medium ${
-                currentStep === 'details' ? 'text-purple-800' : 'text-gray-500'
+                currentStep === "details" ? "text-purple-800" : "text-gray-500"
               }`}
               disabled={true}
             >
-              <span className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
-                currentStep === 'details' ? 'bg-purple-800 text-white' : 'bg-gray-200 text-gray-600'
-              }`}>
+              <span
+                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
+                  currentStep === "details"
+                    ? "bg-purple-800 text-white"
+                    : "bg-gray-200 text-gray-600"
+                }`}
+              >
                 2
               </span>
               Details
@@ -863,13 +1653,19 @@ const UploadArtworks = () => {
             <button
               type="button"
               className={`text-sm font-medium ${
-                currentStep === 'blockchain' || currentStep === 'complete' ? 'text-purple-800' : 'text-gray-500'
+                currentStep === "blockchain" || currentStep === "complete"
+                  ? "text-purple-800"
+                  : "text-gray-500"
               }`}
               disabled={true}
             >
-              <span className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
-                currentStep === 'blockchain' || currentStep === 'complete' ? 'bg-purple-800 text-white' : 'bg-gray-200 text-gray-600'
-              }`}>
+              <span
+                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
+                  currentStep === "blockchain" || currentStep === "complete"
+                    ? "bg-purple-800 text-white"
+                    : "bg-gray-200 text-gray-600"
+                }`}
+              >
                 3
               </span>
               Register
@@ -878,10 +1674,10 @@ const UploadArtworks = () => {
         </div>
 
         <div className="px-6 py-6">
-          {currentStep === 'upload' && renderUploadStep()}
-          {currentStep === 'details' && renderDetailsStep()}
-          {currentStep === 'blockchain' && renderBlockchainStep()}
-          {currentStep === 'complete' && renderCompleteStep()}
+          {currentStep === "upload" && renderUploadStep()}
+          {currentStep === "details" && renderDetailsStep()}
+          {currentStep === "blockchain" && renderBlockchainStep()}
+          {currentStep === "complete" && renderCompleteStep()}
         </div>
       </div>
     </div>

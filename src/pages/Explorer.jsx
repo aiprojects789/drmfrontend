@@ -264,10 +264,7 @@ const Explorer = () => {
   );
 };
 
-// Artwork Card Component
-// Artwork Card Component
 const ArtworkCard = ({ artwork, currentAccount }) => {
-  const [imageError, setImageError] = useState(false);
   const isOwner =
     currentAccount &&
     artwork.owner_address &&
@@ -287,28 +284,17 @@ const ArtworkCard = ({ artwork, currentAccount }) => {
     <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 hover:shadow-xl transition-all">
       <div className="bg-gray-100 h-48 flex items-center justify-center">
         {imageUrl ? (
-          <>
-            {!imageError && imageUrl.includes("ipfs://") ? (
-              <img
-                src={`https://ipfs.io/ipfs/${imageUrl.replace("ipfs://", "")}`}
-                alt={artwork.title || `Artwork ${artwork.token_id}`}
-                className="w-full h-full object-cover"
-                onError={() => setImageError(true)}
-              />
-            ) : (
-              <IPFSImage
-                ipfsUri={imageUrl}
-                alt={artwork.title || `Artwork ${artwork.token_id}`}
-                className="w-full h-full object-cover"
-              />
-            )}
-          </>
+          <IPFSImage
+            ipfsUri={imageUrl}
+            tokenId={artwork.token_id}
+            alt={artwork.title || `Artwork ${artwork.token_id}`}
+            className="w-full h-full object-cover"
+            showFallbackInfo={true}
+          />
         ) : (
           <div className="text-center">
             <Palette className="w-16 h-16 text-gray-400 mx-auto mb-2" />
-            <p className="text-sm text-gray-500">
-              Artwork #{artwork.token_id}
-            </p>
+            <p className="text-sm text-gray-500">Artwork #{artwork.token_id}</p>
             <p className="text-xs text-gray-400">{artwork.title}</p>
           </div>
         )}

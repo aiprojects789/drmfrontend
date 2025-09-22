@@ -111,7 +111,7 @@ export const AuthProvider = ({ children }) => {
       formData.append('password', password);
       
       // Make the API call with proper headers
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://drmbackend-fssdrv599-aisha-kamrans-projects-7a6dddbb.vercel.app'}/api/v1/auth/login`, {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

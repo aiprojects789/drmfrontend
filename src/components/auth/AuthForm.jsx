@@ -30,11 +30,11 @@ const AuthForm = ({ onForgetPasswordClick }) => {
   const [form] = Form.useForm();
   const baseURL = import.meta.env.VITE_BASE_URL_BACKEND;
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/');
-    }
-  }, [isAuthenticated, navigate]);
+  // useEffect(() => {
+  //   if (isAuthenticated) {
+  //     navigate('/');
+  //   }
+  // }, [isAuthenticated, navigate]);
 
   // In your AuthForm component, update the onFinish function:
   const onFinish = async (values) => {
@@ -61,7 +61,7 @@ const AuthForm = ({ onForgetPasswordClick }) => {
         if (response.role === 'admin') {
           navigate('/admin/dashboard'); // Updated path
         } else {
-          navigate('/dashboard'); // This will now work correctly
+          navigate('/'); // This will now work correctly
         }
       } catch (error) {
         console.error('Login failed:', error);

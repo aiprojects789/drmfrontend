@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://drmbackend-fssdrv599-aisha-kamrans-projects-7a6dddbb.vercel.app/api/v1';
+const API_BASE_URL = 'http://localhost:8000/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -185,20 +185,77 @@ export const adminAPI = {
 };
 
 // FIXED: artwork API with proper data extraction
+// Enhanced artworksAPI with better error handling
 export const artworksAPI = {
-  registerWithImage: (formData) => 
-    api.post('/artwork/register-with-image', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000
-    })
-      .then(res => res.data)
-      .catch(error => handleApiError(error, 'Artwork registration')),
+  checkDuplicates: async (formData) => {
+    try {
+      const response = await api.post('/artwork/check-duplicates', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 60000, // 1 minute for duplicate check
+      });
+      return response.data;
+    } catch (error) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Duplicate check timed out. Please try again.');
+      }
+      handleApiError(error, 'Duplicate check');
+    }
+  },
 
-  confirmRegistration: (data) => 
-    api.post('/artwork/confirm-registration', data)
-      .then(res => res.data)
-      .catch(error => handleApiError(error, 'Registration confirmation')),
+  classifyAI: async (formData) => {
+    try {
+      const response = await api.post('/artwork/classify-ai', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 120000, // 2 minutes for AI classification
+      });
+      return response.data;
+    } catch (error) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('AI classification timed out. The model may be busy. Please try again.');
+      }
+      handleApiError(error, 'AI classification');
+    }
+  },
 
+  registerWithImage: async (formData) => {
+    try {
+      const response = await api.post('/artwork/register-with-image', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        timeout: 180000, // 3 minutes for full registration with image processing
+      });
+      return response.data;
+    } catch (error) {
+      if (error.code === 'ECONNABORTED') {
+        throw new Error('Registration timed out. Please try with a smaller image.');
+      }
+      if (error.response?.status === 404) {
+        throw new Error('Registration endpoint not found. Please check server configuration.');
+      }
+      handleApiError(error, 'Register with image');
+    }
+  },
+
+  confirmRegistration: async (data) => {
+    try {
+      const response = await api.post('/artwork/confirm-registration', data, {
+        timeout: 60000, // 1 minute for confirmation
+      });
+      return response.data;
+    } catch (error) {
+      if (error.response?.status === 404) {
+        throw new Error('Confirmation endpoint not found. Please check server configuration.');
+      }
+      handleApiError(error, 'Confirm registration');
+    }
+  },
+
+  // Rest of your existing methods...
   getAll: (params = {}) => 
     api.get('/artwork', { params })
       .then(res => {
@@ -218,31 +275,10 @@ export const artworksAPI = {
       .then(res => res.data)
       .catch(error => handleApiError(error, `Fetch artwork ${tokenId}`)),
 
-  getBlockchainInfo: (tokenId) => 
-    api.get(`/artwork/${tokenId}/blockchain`)
-      .then(res => res.data)
-      .catch(error => handleApiError(error, `Fetch blockchain info ${tokenId}`)),
-
-  getByTokenId: (tokenId) => {
-    return api.get(`/artwork/${tokenId}`);
-  },
-
-  prepareSaleTransaction: (data) => 
-    api.post('/artwork/prepare-sale-transaction', data)
-      .then(res => res.data)
-      .catch(error => handleApiError(error, 'Prepare sale transaction')),
-
-  confirmSale: (data) => 
-    api.post('/artwork/confirm-sale', data)
-      .then(res => res.data)
-      .catch(error => handleApiError(error, 'Confirm sale')),
-
-  // FIXED: Owner artworks with proper data structure
   getByOwner: async (ownerAddress, params = {}) => {
     try {
       const response = await api.get(`/artwork/owner/${ownerAddress}`, { params });
       
-      // Handle different response structures
       let artworks = [];
       let total = 0;
       
@@ -282,7 +318,6 @@ export const artworksAPI = {
     try {
       const response = await api.get(`/artwork/creator/${creatorAddress}`, { params });
       
-      // Handle different response structures
       let artworks = [];
       let total = 0;
       
@@ -313,7 +348,100 @@ export const artworksAPI = {
         has_next: false
       };
     }
-  }
+  },
+
+  // NEW: Category methods
+  getCategories: async (type = null) => {
+    try {
+      const params = type ? { type } : {};
+      const response = await api.get('/artwork/categories', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch categories:', error);
+      // Return default categories if API fails
+      return getDefaultCategories(type);
+    }
+  },
+
+  createCategory: async (categoryData) => {
+    try {
+      const response = await api.post('/artwork/categories', categoryData);
+      return response.data;
+    } catch (error) {
+      handleApiError(error, 'Create category');
+    }
+  },
+
+  getBlockchainInfo: (tokenId) => 
+    api.get(`/artwork/${tokenId}/blockchain`)
+      .then(res => res.data)
+      .catch(error => handleApiError(error, `Fetch blockchain info ${tokenId}`)),
+
+  getByTokenId: (tokenId) => {
+    return api.get(`/artwork/${tokenId}`);
+  },
+
+  prepareSaleTransaction: (data) => 
+    api.post('/artwork/prepare-sale-transaction', data)
+      .then(res => res.data)
+      .catch(error => handleApiError(error, 'Prepare sale transaction')),
+
+  confirmSale: (data) => 
+    api.post('/artwork/confirm-sale', data)
+      .then(res => res.data)
+      .catch(error => handleApiError(error, 'Confirm sale')),
+  
+};
+
+// Helper function to provide default categories if API fails
+const getDefaultCategories = (type) => {
+  const allCategories = {
+    medium: [
+      { name: "Painting", type: "medium", description: "Oil, acrylic, watercolor, etc." },
+      { name: "Drawing", type: "medium", description: "Pencil, charcoal, ink, etc." },
+      { name: "Sculpture", type: "medium", description: "Stone, wood, metal, clay, etc." },
+      { name: "Printmaking", type: "medium", description: "Etching, lithography, screen printing, etc." },
+      { name: "Photography", type: "medium", description: "Digital, film, black & white, etc." },
+      { name: "Digital Art", type: "medium", description: "AI art, 3D modeling, vector, animation" },
+      { name: "Mixed Media / Collage", type: "medium", description: "Combination of different artistic mediums" },
+      { name: "Textile & Fiber Art", type: "medium", description: "Weaving, embroidery, fashion, tapestry" },
+      { name: "Calligraphy / Typography", type: "medium", description: "Artistic writing and lettering" },
+      { name: "Installation Art", type: "medium", description: "Large-scale, immersive artworks" },
+      { name: "Performance Art", type: "medium", description: "Live artistic performance" },
+      { name: "Other Medium", type: "medium", description: "Other artistic medium not listed" }
+    ],
+    style: [
+      { name: "Abstract", type: "style", description: "Non-representational art" },
+      { name: "Realism / Hyperrealism", type: "style", description: "Art that resembles reality" },
+      { name: "Impressionism", type: "style", description: "Emphasis on light and movement" },
+      { name: "Expressionism", type: "style", description: "Emotional experience over physical reality" },
+      { name: "Surrealism", type: "style", description: "Dream-like, unconscious mind" },
+      { name: "Cubism", type: "style", description: "Geometric forms and multiple perspectives" },
+      { name: "Minimalism", type: "style", description: "Extreme simplicity of form" },
+      { name: "Pop Art", type: "style", description: "Popular culture influences" },
+      { name: "Conceptual Art", type: "style", description: "Idea or concept over aesthetic" },
+      { name: "Street Art / Graffiti", type: "style", description: "Public space art" },
+      { name: "Contemporary / Modern", type: "style", description: "Current artistic trends" },
+      { name: "Traditional / Folk / Indigenous", type: "style", description: "Cultural and traditional art forms" },
+      { name: "Other Style", type: "style", description: "Other artistic style not listed" }
+    ],
+    subject: [
+      { name: "Portraits", type: "subject", description: "Art focused on people's faces or figures" },
+      { name: "Landscapes", type: "subject", description: "Natural scenery and environments" },
+      { name: "Still Life", type: "subject", description: "Arrangements of inanimate objects" },
+      { name: "Figurative Art", type: "subject", description: "Human body, gestures, and forms" },
+      { name: "Animals & Wildlife", type: "subject", description: "Animal subjects and wildlife" },
+      { name: "Architecture & Urban Scenes", type: "subject", description: "Buildings and cityscapes" },
+      { name: "Fantasy & Mythological", type: "subject", description: "Imaginary and mythical subjects" },
+      { name: "Religious & Spiritual", type: "subject", description: "Religious and spiritual themes" },
+      { name: "Political / Social Commentary", type: "subject", description: "Social and political themes" },
+      { name: "Nature & Environment", type: "subject", description: "Natural world and environmental themes" },
+      { name: "Abstract Concepts", type: "subject", description: "Non-representational ideas and concepts" },
+      { name: "Other Subject", type: "subject", description: "Other subject matter not listed" }
+    ]
+  };
+
+  return type ? allCategories[type] || [] : [...allCategories.medium, ...allCategories.style, ...allCategories.subject];
 };
 
 // FIXED: Licenses API with proper data structure

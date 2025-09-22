@@ -68,7 +68,6 @@ const ArtworkDetail = () => {
   const [artwork, setArtwork] = useState(null);
   const [licenses, setLicenses] = useState([]);
   const [activeTab, setActiveTab] = useState("details");
-  const [imageError, setImageError] = useState(false);
 
   useEffect(() => {
     const fetchArtworkData = async () => {
@@ -237,25 +236,13 @@ const ArtworkDetail = () => {
           {/* Image Section */}
           <div className="lg:sticky lg:top-6 self-start">
             <div className="bg-gray-100 rounded-lg overflow-hidden aspect-square flex items-center justify-center">
-              {!imageError && artwork.metadata_uri?.includes("ipfs://") ? (
-                <img
-                  src={`https://ipfs.io/ipfs/${artwork.metadata_uri.replace(
-                    "ipfs://",
-                    ""
-                  )}`}
-                  alt={`Artwork ${artwork.token_id}`}
-                  className="w-full h-full object-cover"
-                  onError={() => setImageError(true)}
-                />
-              ) : (
-                <div className="text-center p-8">
-                  <IPFSImage
-                    ipfsUri={artwork.metadata_uri}
-                    alt={`Artwork ${artwork.token_id}`}
-                    className="rounded-lg aspect-square"
-                  />
-                </div>
-              )}
+              <IPFSImage
+                ipfsUri={artwork.metadata_uri}
+                tokenId={artwork.token_id}
+                alt={artwork.title || `Artwork ${artwork.token_id}`}
+                className="w-full h-full object-cover"
+                showFallbackInfo={true}
+              />
             </div>
 
             {/* Action Buttons */}
