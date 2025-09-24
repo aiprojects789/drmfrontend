@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'http://http://127.0.0.1:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_BASE_URL_BACKEND || 'http://localhost:8000/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -184,7 +184,6 @@ export const adminAPI = {
       .catch(error => handleApiError(error, 'Get admin stats'))
 };
 
-// FIXED: artwork API with proper data extraction
 // Enhanced artworksAPI with better error handling
 export const artworksAPI = {
   checkDuplicates: async (formData) => {
@@ -444,24 +443,162 @@ const getDefaultCategories = (type) => {
   return type ? allCategories[type] || [] : [...allCategories.medium, ...allCategories.style, ...allCategories.subject];
 };
 
-// FIXED: Licenses API with proper data structure
-export const licensesAPI = {
-  grant: (data) => 
-    api.post('/license/grant', data)
-      .then(res => res.data)
-      .catch(error => handleApiError(error, 'Grant license')),
+// Update your API services to match the new backend endpoints:
 
+export const licensesAPI = {
+  // NEW: Purchase license with the updated system
+  purchase: async (data) => {
+    try {
+      const formData = new FormData();
+      formData.append('token_id', data.token_id.toString());
+      formData.append('license_type', data.license_type);
+      
+      const response = await api.post('/license/purchase', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      handleApiError(error, 'Purchase license');
+    }
+  },
+
+  // NEW: Get license prices for specific artwork
+  getPricesForArtwork: async (tokenId) => {
+    try {
+      const response = await api.get(`/license/prices/artwork/${tokenId}`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to get license prices for artwork ${tokenId}:`, error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // NEW: Calculate license price
+  calculatePrice: async (artworkPrice, licenseType) => {
+    try {
+      const response = await api.get('/license/prices/calculate', {
+        params: { artwork_price: artworkPrice, license_type: licenseType }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to calculate license price:', error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // NEW: License configuration management
+  getLicenseConfigs: async (activeOnly = false) => {
+    try {
+      const response = await api.get('/license/config', {
+        params: { active_only: activeOnly }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get license configs:', error);
+      return [];
+    }
+  },
+
+  getActiveLicenseConfig: async () => {
+    try {
+      const response = await api.get('/license/config/active');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get active license config:', error);
+      return null;
+    }
+  },
+
+  createLicenseConfig: async (configData) => {
+    try {
+      const response = await api.post('/license/config', configData);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to create license config:', error);
+      throw error;
+    }
+  },
+
+  updateLicenseConfig: async (configId, updateData) => {
+    try {
+      const response = await api.put(`/license/config/${configId}`, updateData);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to update license config:', error);
+      throw error;
+    }
+  },
+
+  // UPDATED: Purchase license with new pricing system
+  purchaseSimple: async (data) => {
+    try {
+      const formData = new FormData();
+      formData.append('token_id', data.token_id.toString());
+      formData.append('license_type', data.license_type);
+      
+      const response = await api.post('/license/purchase-simple', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      handleApiError(error, 'Purchase license simple');
+    }
+  },
+
+  // NEW: Purchase license using simple method with predefined prices
+  purchaseSimple: async (data) => {
+    try {
+      const formData = new FormData();
+      formData.append('token_id', data.token_id.toString());
+      formData.append('license_type', data.license_type);
+      
+      const response = await api.post('/license/purchase-simple', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      handleApiError(error, 'Purchase license simple');
+    }
+  },
+
+  // NEW: Get license prices
+  getPrices: async () => {
+    try {
+      const response = await api.get('/license/prices');
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get license prices:', error);
+      return {
+        success: false,
+        prices: {
+          "LINK_ONLY": { price_eth: 0.01, platform_fee_eth: 0.0005, actual_amount_eth: 0.0095 },
+          "ACCESS_WITH_WM": { price_eth: 0.05, platform_fee_eth: 0.0025, actual_amount_eth: 0.0475 },
+          "FULL_ACCESS": { price_eth: 0.1, platform_fee_eth: 0.005, actual_amount_eth: 0.095 }
+        }
+      };
+    }
+  },
+
+  // UPDATED: Revoke license 
   revoke: (licenseId) => 
     api.post(`/license/${licenseId}/revoke`)
       .then(res => res.data)
       .catch(error => handleApiError(error, `Revoke license ${licenseId}`)),
 
-  // FIXED: User licenses with proper data structure
+  // UPDATED: Get user licenses - keep existing implementation but update for new data structure
   getByUser: async (userAddress, params = {}) => {
     try {
-      console.log(`🚀 Fetching licenses for user: ${userAddress}`, params);
+      console.log(`Fetching licenses for user: ${userAddress}`, params);
       
-      // Build query parameters properly
       const queryParams = new URLSearchParams();
       
       if (params.as_licensee !== undefined) {
@@ -475,82 +612,49 @@ export const licensesAPI = {
       }
       
       const url = `/license/user/${userAddress}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
-      console.log(`🌐 API URL: ${url}`);
-      
       const response = await api.get(url);
-      console.log(`📡 Raw API response:`, response);
-      console.log(`📦 Response data:`, response.data);
       
-      // Handle different response structures more robustly
+      // Handle the response structure
       let licenses = [];
-      let total = 0;
-      let page = 1;
-      let size = 20;
-      let hasNext = false;
-      
-      if (response.data) {
-        // Check for standard paginated response
-        if (response.data.licenses && Array.isArray(response.data.licenses)) {
-          licenses = response.data.licenses;
-          total = response.data.total || licenses.length;
-          page = response.data.page || 1;
-          size = response.data.size || 20;
-          hasNext = response.data.has_next || false;
-          console.log(`✅ Standard paginated response: ${licenses.length} licenses`);
-        }
-        // Check for direct array response
-        else if (Array.isArray(response.data)) {
-          licenses = response.data;
-          total = response.data.length;
-          console.log(`✅ Direct array response: ${licenses.length} licenses`);
-        }
-        // Check for nested data structure
-        else if (response.data.data && Array.isArray(response.data.data)) {
-          licenses = response.data.data;
-          total = response.data.total || licenses.length;
-          page = response.data.page || 1;
-          size = response.data.size || 20;
-          hasNext = response.data.has_next || false;
-          console.log(`✅ Nested data response: ${licenses.length} licenses`);
-        }
-        // Log unexpected structure
-        else {
-          console.warn(`⚠️ Unexpected response structure:`, response.data);
-          console.warn(`Response keys:`, Object.keys(response.data));
-        }
+      if (response.data?.licenses) {
+        licenses = response.data.licenses;
+      } else if (Array.isArray(response.data)) {
+        licenses = response.data;
       }
       
-      // Validate license objects
-      const validLicenses = licenses.filter(license => {
-        const isValid = license && 
-                      (license.license_id !== undefined || license.id !== undefined) &&
-                      license.token_id !== undefined;
-        if (!isValid) {
-          console.warn(`⚠️ Invalid license object:`, license);
-        }
-        return isValid;
-      });
+      // Transform license data to match new structure
+      const transformedLicenses = licenses.map(license => ({
+        ...license,
+        // Map old fields to new structure if needed
+        start_date: license.purchase_time,
+        end_date: null, // No expiration in new system
+        terms_hash: null, // Not used in new system
+        fee_paid: parseFloat(license.total_amount_eth || 0),
+        // Keep existing fields
+        license_id: license.license_id,
+        token_id: license.token_id,
+        licensee_address: license.buyer_address,
+        licensor_address: license.owner_address,
+        license_type: license.license_type,
+        is_active: license.is_active,
+        created_at: license.created_at,
+        updated_at: license.updated_at
+      }));
       
-      console.log(`🎯 Final result: ${validLicenses.length} valid licenses out of ${licenses.length} total`);
-      
-      const result = {
-        data: validLicenses,
-        total: total,
-        page: page,
-        size: size,
-        has_next: hasNext
+      return {
+        data: transformedLicenses,
+        licenses: transformedLicenses,
+        total: response.data?.total || transformedLicenses.length,
+        page: response.data?.page || 1,
+        size: response.data?.size || 20,
+        has_next: response.data?.has_next || false
       };
       
-      console.log(`📊 Returning result:`, result);
-      return result;
-      
     } catch (error) {
-      console.error(`❌ User licenses API failed for ${userAddress}:`, error);
-      console.error(`Error details:`, error.response?.data || error.message);
-      
-      // Return empty result instead of throwing
+      console.error(`User licenses API failed for ${userAddress}:`, error);
       return {
         data: [],
+        licenses: [],
         total: 0,
         page: 1,
         size: 20,
@@ -560,6 +664,29 @@ export const licensesAPI = {
     }
   },
 
+  // NEW: Get buyer licenses directly from blockchain
+  getBuyerFromBlockchain: async (buyerAddress) => {
+    try {
+      const response = await api.get(`/license/buyer/${buyerAddress}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to get buyer licenses from blockchain:', error);
+      return { success: false, licenses: [], error: error.message };
+    }
+  },
+
+  // NEW: Get license info from blockchain
+  getLicenseInfo: async (licenseId) => {
+    try {
+      const response = await api.get(`/license/${licenseId}/info`);
+      return response.data;
+    } catch (error) {
+      console.error(`Failed to get license info for ${licenseId}:`, error);
+      return { success: false, error: error.message };
+    }
+  },
+
+  // Keep existing methods for compatibility
   getAll: (params = {}) => 
     api.get('/license', { params })
       .then(res => res.data)
@@ -575,12 +702,18 @@ export const licensesAPI = {
       .then(res => res.data)
       .catch(error => handleApiError(error, `Fetch artwork licenses ${tokenId}`)),
 
+  // DEPRECATED: Old grant methods - keep for compatibility but update as needed
+  grant: (data) => 
+    api.post('/license/grant', data)
+      .then(res => res.data)
+      .catch(error => handleApiError(error, 'Grant license')),
+
   grantWithDocument: async (licenseData) => {
     try {
       const formData = new FormData();
       formData.append('token_id', licenseData.token_id.toString());
       formData.append('licensee_address', licenseData.licensee_address);
-      formData.append('duration_days', licenseData.duration_days.toString());
+      formData.append('duration_days', licenseData.duration_days?.toString() || '30');
       formData.append('license_type', licenseData.license_type);
 
       const response = await api.post('/license/grant-with-document', formData, {
@@ -664,6 +797,60 @@ export const transactionsAPI = {
         total: 0
       };
     }
+  }
+};
+
+export const chatbotAPI = {
+  async sendMessage(message, userContext = null) {
+    try {
+      const requestBody = {
+        query: message,
+        ...(userContext && { user_context: userContext })
+      };
+
+      const response = await axios.post(`${API_BASE_URL}/chatbot/ask`, requestBody, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000, // 30 seconds timeout
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('Chatbot API error:', error);
+      throw new Error(error.response?.data?.detail || 'Failed to get response from AI assistant');
+    }
+  },
+
+  // Fallback responses if API is not available
+  getFallbackResponse(message) {
+    const lowerMessage = message.toLowerCase();
+    
+    if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
+      return "Hello! I'm ArtGuard AI, your digital artwork protection assistant. How can I help you today?";
+    }
+    
+    if (lowerMessage.includes('protect') || lowerMessage.includes('security')) {
+      return "To protect your digital artwork, we use blockchain technology to create immutable ownership records. You can upload your artwork, register it on the blockchain, and set up licensing terms to prevent unauthorized use.";
+    }
+    
+    if (lowerMessage.includes('blockchain')) {
+      return "Blockchain registration creates a permanent, tamper-proof record of your artwork's ownership and provenance. Each artwork gets a unique digital fingerprint stored on the blockchain that can't be altered or deleted.";
+    }
+    
+    if (lowerMessage.includes('license') || lowerMessage.includes('licensing')) {
+      return "Our licensing system allows you to set specific terms for how your artwork can be used. You can define usage rights, expiration dates, and pricing. Smart contracts automatically enforce these terms.";
+    }
+    
+    if (lowerMessage.includes('piracy') || lowerMessage.includes('unauthorized')) {
+      return "We monitor the web for unauthorized use of your registered artwork. Our system detects potential piracy and helps you take appropriate action to protect your intellectual property.";
+    }
+    
+    if (lowerMessage.includes('price') || lowerMessage.includes('cost')) {
+      return "We offer flexible pricing plans for artists. Basic protection is free, while advanced features like automated piracy detection and premium licensing options are available in our paid plans.";
+    }
+    
+    return "I specialize in digital artwork protection, blockchain registration, and licensing. You can ask me about: protecting your artwork, blockchain technology, licensing options, piracy detection, or pricing plans. How can I assist you?";
   }
 };
 

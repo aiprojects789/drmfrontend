@@ -12,12 +12,16 @@ const Auth = () => {
         ></div>
         <div className="relative max-w-7xl mx-auto py-24 px-4 sm:py-32 sm:px-6 lg:px-8 ">
         <div className="p-4  flex flex-col md:flex-row items-center justify-center gap-6">
-      <div className='text-center -mt-52'>
-        <img src="/logo_white.png" alt="" className='block'/>
-        <h1 className='text-4xl font-bold text-white mb-8 -mt-24'>Welcome to ARTDUNIYA </h1>
-        <p className='text-white md:ms-8 ms-auto me-auto max-w-xs md:max-w-none text-sm md:text-base'>A blockchain-powered platform that ensures your digital artwork remains yours, prevents unauthorized use, and creates ethical revenue streams.</p>
-      
-      </div>
+      <div className="text-center flex flex-col items-center">
+  <img src="/logo_white.png" alt="Logo" className="mx-auto mb-6 w-80" />
+  <h1 className="text-4xl font-bold text-white mb-8 -mt-6">
+    Welcome to XDRM
+  </h1>
+  <p className="text-white max-w-xs md:max-w-md text-sm md:text-base">
+    A blockchain-powered platform that ensures your digital artwork remains yours, prevents unauthorized use, and creates ethical revenue streams.
+  </p>
+</div>
+
      {showForgetPassword ? (
             <ForgetPasswordForm onBack={()=>setShowForgetPassword(false)}/>
           ) : (

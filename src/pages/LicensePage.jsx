@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useWeb3 } from "../context/Web3Context";
 import { useAuth } from "../context/AuthContext";
-import { Shield, Clock, ArrowLeft, AlertTriangle } from "lucide-react";
+import { Shield, ArrowLeft, AlertTriangle, Info, Calendar, Percent } from "lucide-react";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { Button } from "@mui/material";
 import { useForm } from "react-hook-form";
@@ -13,15 +13,10 @@ import toast from "react-hot-toast";
 import IPFSImage from "../components/common/IPFSImage";
 
 const schema = yup.object({
-  duration_days: yup
-    .number()
-    .required("Duration is required")
-    .min(1, "Minimum 1 day")
-    .max(365, "Maximum 1 year"),
   license_type: yup
     .string()
     .required("License type is required")
-    .oneOf(["PERSONAL", "COMMERCIAL", "EXCLUSIVE"], "Invalid license type"),
+    .oneOf(["LINK_ONLY", "ACCESS_WITH_WM", "FULL_ACCESS"], "Invalid license type"),
 });
 
 const LicensePage = () => {
@@ -35,48 +30,103 @@ const LicensePage = () => {
   const [purchasing, setPurchasing] = useState(false);
   const [error, setError] = useState(null);
   const [transactionHash, setTransactionHash] = useState(null);
-  const [licensePreview, setLicensePreview] = useState(null);
+  const [priceInfo, setPriceInfo] = useState(null);
+  const [isOwner, setIsOwner] = useState(false);
+  const [licenseConfig, setLicenseConfig] = useState(null);
 
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors },
   } = useForm({
     resolver: yupResolver(schema),
     defaultValues: {
-      duration_days: 30,
-      license_type: "PERSONAL",
+      license_type: "LINK_ONLY",
     },
   });
 
-  // Fetch artwork data
-  useEffect(() => {
-  const fetchArtwork = async () => {
-    setLoading(true);
-    try {
-      // FIX: getByTokenId returns axios response, artwork data is in response.data
-      const response = await artworksAPI.getByTokenId(parseInt(tokenId));
-      console.log('🎨 Artwork API response:', response); // Debug log
-      
-      if (response.data) {
-        setArtwork(response.data);
-        console.log('✅ Artwork loaded:', response.data); // Debug log
-      } else {
-        console.warn('⚠️ No artwork data in response:', response);
-        setError("Artwork not found");
-      }
-    } catch (error) {
-      console.error("❌ Error fetching artwork:", error);
-      setError("Failed to load artwork");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const selectedLicenseType = watch("license_type");
 
-  if (tokenId) {
-    fetchArtwork();
-  }
-}, [tokenId]);
+  // Fetch artwork data and license prices
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // Fetch artwork
+        const artworkResponse = await artworksAPI.getByTokenId(parseInt(tokenId));
+        console.log('Artwork API response:', artworkResponse);
+        
+        if (artworkResponse.data) {
+          setArtwork(artworkResponse.data);
+          
+          // Check if current user is the owner
+          if (account && artworkResponse.data.owner_address) {
+            setIsOwner(account.toLowerCase() === artworkResponse.data.owner_address.toLowerCase());
+          }
+
+          // Fetch license prices based on artwork price
+          if (artworkResponse.data.price > 0) {
+            try {
+              const pricesResponse = await licensesAPI.getPricesForArtwork(parseInt(tokenId));
+              if (pricesResponse.success) {
+                setPriceInfo(pricesResponse);
+                setLicenseConfig({
+                  durationDays: pricesResponse.duration_days,
+                  platformFeePercentage: pricesResponse.platform_fee_percentage,
+                  configName: pricesResponse.config_name
+                });
+              }
+            } catch (priceError) {
+              console.warn("Failed to fetch dynamic prices, using defaults:", priceError);
+              // Fallback to default calculation
+              setPriceInfo({
+                prices: {
+                  "LINK_ONLY": { 
+                    license_fee_eth: artworkResponse.data.price * 0.2,
+                    platform_fee_eth: artworkResponse.data.price * 0.2 * 0.05,
+                    total_amount_eth: artworkResponse.data.price * 0.2,
+                    license_percentage: 20,
+                    duration_days: 30
+                  },
+                  "ACCESS_WITH_WM": { 
+                    license_fee_eth: artworkResponse.data.price * 0.7,
+                    platform_fee_eth: artworkResponse.data.price * 0.7 * 0.05,
+                    total_amount_eth: artworkResponse.data.price * 0.7,
+                    license_percentage: 70,
+                    duration_days: 30
+                  },
+                  "FULL_ACCESS": { 
+                    license_fee_eth: artworkResponse.data.price * 0.9,
+                    platform_fee_eth: artworkResponse.data.price * 0.9 * 0.05,
+                    total_amount_eth: artworkResponse.data.price * 0.9,
+                    license_percentage: 90,
+                    duration_days: 30
+                  }
+                },
+                duration_days: 30,
+                platform_fee_percentage: 5,
+                config_name: "Fallback"
+              });
+            }
+          }
+        } else {
+          setError("Artwork not found");
+          return;
+        }
+
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        setError("Failed to load artwork or pricing information");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (tokenId) {
+      fetchData();
+    }
+  }, [tokenId, account]);
 
   const handlePurchaseLicense = async (data) => {
     if (!isAuthenticated || !account) {
@@ -89,58 +139,60 @@ const LicensePage = () => {
       return;
     }
 
+    if (isOwner) {
+      setError('You cannot purchase a license for your own artwork');
+      return;
+    }
+
     setPurchasing(true);
     setError(null);
-    setLicensePreview(null);
     setTransactionHash(null);
 
     try {
-      // Fixed license fee of 0.1 ETH as per the smart contract
-      const licenseFeeWei = web3.utils.toWei("0.1", "ether");
+      // Step 1: Prepare license purchase
+      const prepToast = toast.loading("Preparing license purchase...");
 
-      // Step 1: Prepare license with automatic document generation
-      const prepToast = toast.loading(
-        "Generating license document and preparing transaction..."
-      );
-
-      const licenseResponse = await licensesAPI.grantWithDocument({
+      const licenseResponse = await licensesAPI.purchaseSimple({
         token_id: parseInt(tokenId),
-        licensee_address: account, // Licensee is the current user
-        duration_days: parseInt(data.duration_days),
         license_type: data.license_type,
       });
 
       toast.dismiss(prepToast);
 
       if (!licenseResponse.success) {
-        throw new Error(licenseResponse.detail || "Failed to prepare license");
+        throw new Error(licenseResponse.detail || "Failed to prepare license purchase");
       }
 
-      // Show license preview if available
-      if (licenseResponse.license_document_preview) {
-        setLicensePreview(licenseResponse.license_document_preview);
-      }
+      console.log("License response:", licenseResponse);
 
       // Step 2: Send blockchain transaction
-      let txResponse;
-      try {
-        const txToast = toast.loading("Sending transaction to blockchain...");
+      const txToast = toast.loading("Sending transaction to blockchain...");
 
-        txResponse = await sendTransaction({
-          to: licenseResponse.transaction_data.to,
-          data: licenseResponse.transaction_data.data,
-          from: account,
-          value: licenseFeeWei,
-        });
+      const txData = licenseResponse.transaction_data;
+      const txParams = {
+        to: txData.to,
+        data: txData.data,
+        from: account,
+        value: txData.value,
+        gas: txData.gas,
+      };
 
-        toast.dismiss(txToast);
+      // Add gas pricing based on transaction type
+      if (txData.maxFeePerGas) {
+        txParams.maxFeePerGas = txData.maxFeePerGas;
+        txParams.maxPriorityFeePerGas = txData.maxPriorityFeePerGas;
+      } else if (txData.gasPrice) {
+        txParams.gasPrice = txData.gasPrice;
+      }
 
-        if (!txResponse || !txResponse.hash) {
-          throw new Error("No transaction hash received");
-        }
-      } catch (txError) {
-        console.error("Transaction sending failed:", txError);
-        throw new Error(`Transaction failed: ${txError.message}`);
+      console.log("Sending transaction:", txParams);
+
+      const txResponse = await sendTransaction(txParams);
+
+      toast.dismiss(txToast);
+
+      if (!txResponse || !txResponse.hash) {
+        throw new Error("No transaction hash received");
       }
 
       setTransactionHash(txResponse.hash);
@@ -153,8 +205,8 @@ const LicensePage = () => {
 
     } catch (err) {
       console.error('License purchase failed:', err);
+      toast.dismiss();
       
-      // Specific error handling
       if (err.code === 4001) {
         setError("Transaction cancelled by user");
       } else if (err.message?.includes("insufficient funds")) {
@@ -164,7 +216,8 @@ const LicensePage = () => {
       } else if (err.message?.includes("rejected")) {
         setError("Transaction rejected by user.");
       } else if (err.message) {
-        setError(`License purchase failed: ${err.message}`);
+        const errorMsg = err.message.length > 100 ? err.message.substring(0, 100) + "..." : err.message;
+        setError(`License purchase failed: ${errorMsg}`);
       } else {
         setError("License purchase failed. Please try again.");
       }
@@ -176,6 +229,52 @@ const LicensePage = () => {
   const formatAddress = (address) => {
     if (!address) return 'Unknown';
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  };
+
+  const getLicenseTypeInfo = (type) => {
+    const info = {
+      "LINK_ONLY": {
+        name: "Link Only",
+        description: "Basic access to artwork link",
+        features: [
+          "View artwork through link only",
+          "Basic reference rights",
+          "Non-commercial use",
+          "Link sharing allowed"
+        ]
+      },
+      "ACCESS_WITH_WM": {
+        name: "Access with Watermark", 
+        description: "Full access but with watermark protection",
+        features: [
+          "Full artwork access",
+          "Watermarked version",
+          "Commercial use allowed",
+          "Attribution required",
+          "Download permissions"
+        ]
+      },
+      "FULL_ACCESS": {
+        name: "Full Access",
+        description: "Complete access without restrictions",
+        features: [
+          "Full resolution access",
+          "No watermarks",
+          "Commercial use rights",
+          "Modification rights",
+          "Unrestricted usage"
+        ]
+      }
+    };
+    return info[type] || info["LINK_ONLY"];
+  };
+    // Calculate expiration date
+  const calculateExpirationDate = () => {
+    if (!licenseConfig) return null;
+    const today = new Date();
+    const expiration = new Date();
+    expiration.setDate(today.getDate() + licenseConfig.durationDays);
+    return expiration.toLocaleDateString();
   };
 
   if (loading) {
@@ -205,6 +304,9 @@ const LicensePage = () => {
     );
   }
 
+  const expirationDate = calculateExpirationDate();
+  const selectedPriceInfo = priceInfo?.prices?.[selectedLicenseType];
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
       {/* Header */}
@@ -227,58 +329,37 @@ const LicensePage = () => {
         </Link>
       </div>
 
+      {/* Owner Warning */}
+      {isOwner && (
+        <div className="mb-8 bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+          <div className="flex items-start">
+            <Info className="w-6 h-6 text-yellow-600 mt-0.5 mr-3" />
+            <div>
+              <h3 className="text-lg font-semibold text-yellow-800 mb-2">
+                You Own This Artwork
+              </h3>
+              <p className="text-yellow-700">
+                You cannot purchase a license for your own artwork. You already have full rights to use it.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Success Message */}
       {transactionHash && (
         <div className="mb-8 bg-green-50 border border-green-200 rounded-lg p-6">
           <div className="text-center">
             <h3 className="text-lg font-semibold text-green-800 mb-2">
-              ✅ Transaction Submitted!
+              Transaction Submitted!
             </h3>
             <p className="text-green-600 mb-4">
               Your license purchase has been submitted to the blockchain.
             </p>
-            {transactionHash && (
-              <div className="bg-white p-3 rounded border">
-                <p className="text-sm text-gray-600 mb-1">Transaction Hash:</p>
-                <p className="text-sm font-mono text-gray-800 break-all">
-                  {transactionHash}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* License Preview */}
-      {licensePreview && (
-        <div className="mb-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-blue-800 mb-4">
-            📄 Generated License Document Preview
-          </h3>
-          <div className="bg-white p-4 rounded-lg border text-sm">
-            <h4 className="font-semibold mb-2">{licensePreview.title}</h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <strong>Artwork:</strong> {licensePreview.artwork?.title} (#
-                {licensePreview.artwork?.token_id})
-              </div>
-              <div>
-                <strong>License Type:</strong>{" "}
-                {licensePreview.license_terms?.type}
-              </div>
-              <div>
-                <strong>Duration:</strong>{" "}
-                {licensePreview.license_terms?.duration?.duration_days} days
-              </div>
-              <div>
-                <strong>Fee:</strong>{" "}
-                {licensePreview.technical_details?.license_fee}
-              </div>
-            </div>
-            <div className="mb-3">
-              <strong>Usage Rights:</strong>
-              <p className="text-gray-600 text-xs mt-1">
-                {licensePreview.terms_and_conditions?.usage_rights}
+            <div className="bg-white p-3 rounded border">
+              <p className="text-sm text-gray-600 mb-1">Transaction Hash:</p>
+              <p className="text-sm font-mono text-gray-800 break-all">
+                {transactionHash}
               </p>
             </div>
           </div>
@@ -323,6 +404,21 @@ const LicensePage = () => {
               </div>
               
               <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Current Owner</span>
+                <span className="text-sm font-mono text-gray-900">
+                  {formatAddress(artwork?.owner_address)}
+                  {isOwner && <span className="ml-2 text-blue-600 text-xs">(You)</span>}
+                </span>
+              </div>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-500">Artwork Price</span>
+                <span className="text-sm font-semibold text-gray-900">
+                  {artwork?.price ? `${artwork.price} ETH` : 'Not set'}
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Royalty</span>
                 <span className="text-sm font-semibold text-gray-900">
                   {(artwork?.royalty_percentage / 100).toFixed(2)}%
@@ -341,22 +437,31 @@ const LicensePage = () => {
 
         {/* License Purchase Form */}
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-6">License Details</h3>
+          <h3 className="text-xl font-bold text-gray-900 mb-6">License Options</h3>
           
           {!isAuthenticated ? (
             <div className="text-center py-8">
               <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
               <h4 className="text-lg font-semibold text-gray-900 mb-2">Wallet Required</h4>
               <p className="text-gray-600">Please connect your wallet to purchase a license.</p>
-              <p className="text-sm text-gray-500 mt-2">
-                Detected: {account ? `Wallet connected (${account.substring(0, 8)}...) but not authenticated` : 'No wallet detected'}
-              </p>
             </div>
           ) : !isCorrectNetwork ? (
             <div className="text-center py-8">
               <AlertTriangle className="w-12 h-12 text-orange-500 mx-auto mb-4" />
               <h4 className="text-lg font-semibold text-gray-900 mb-2">Wrong Network</h4>
               <p className="text-gray-600">Please switch to Sepolia testnet to purchase licenses.</p>
+            </div>
+          ) : isOwner ? (
+            <div className="text-center py-8">
+              <Info className="w-12 h-12 text-blue-500 mx-auto mb-4" />
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">You Own This Artwork</h4>
+              <p className="text-gray-600">As the owner, you have full rights to this artwork without needing a license.</p>
+            </div>
+          ) : artwork?.price <= 0 ? (
+            <div className="text-center py-8">
+              <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">Price Not Set</h4>
+              <p className="text-gray-600">This artwork does not have a price set. Cannot purchase license.</p>
             </div>
           ) : (
             <form onSubmit={handleSubmit(handlePurchaseLicense)}>
@@ -370,9 +475,21 @@ const LicensePage = () => {
                     errors.license_type ? "border-red-300" : "border-gray-300"
                   }`}
                 >
-                  <option value="PERSONAL">Personal Use (0.1 ETH)</option>
-                  <option value="COMMERCIAL">Commercial Use (0.1 ETH)</option>
-                  <option value="EXCLUSIVE">Exclusive Rights (0.1 ETH)</option>
+                  <option value="LINK_ONLY">
+                    Link Only ({selectedLicenseType === "LINK_ONLY" && priceInfo?.prices?.LINK_ONLY ? 
+                      `${priceInfo.prices.LINK_ONLY.license_percentage}% of artwork price` : 
+                      "20% of artwork price"})
+                  </option>
+                  <option value="ACCESS_WITH_WM">
+                    Access with Watermark ({selectedLicenseType === "ACCESS_WITH_WM" && priceInfo?.prices?.ACCESS_WITH_WM ? 
+                      `${priceInfo.prices.ACCESS_WITH_WM.license_percentage}% of artwork price` : 
+                      "70% of artwork price"})
+                  </option>
+                  <option value="FULL_ACCESS">
+                    Full Access ({selectedLicenseType === "FULL_ACCESS" && priceInfo?.prices?.FULL_ACCESS ? 
+                      `${priceInfo.prices.FULL_ACCESS.license_percentage}% of artwork price` : 
+                      "90% of artwork price"})
+                  </option>
                 </select>
                 {errors.license_type && (
                   <p className="text-red-500 text-sm mt-1">
@@ -381,48 +498,81 @@ const LicensePage = () => {
                 )}
               </div>
 
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Duration (Days)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="365"
-                  {...register("duration_days")}
-                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-800 focus:border-blue-800 ${
-                    errors.duration_days ? "border-red-300" : "border-gray-300"
-                  }`}
-                />
-                {errors.duration_days && (
-                  <p className="text-red-500 text-sm mt-1">
-                    {errors.duration_days.message}
+              {/* License Type Description */}
+              {selectedLicenseType && (
+                <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="font-semibold text-blue-900 mb-2">
+                    {getLicenseTypeInfo(selectedLicenseType).name}
+                  </h4>
+                  <p className="text-blue-700 text-sm mb-3">
+                    {getLicenseTypeInfo(selectedLicenseType).description}
                   </p>
-                )}
-                <p className="text-sm text-gray-500 mt-1">
-                  License will be valid for the specified number of days
-                </p>
-              </div>
+                  <ul className="text-blue-600 text-sm space-y-1">
+                    {getLicenseTypeInfo(selectedLicenseType).features.map((feature, index) => (
+                      <li key={index} className="flex items-start">
+                        <span className="mr-2">•</span>
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
-              <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                <h4 className="font-semibold text-gray-900 mb-3">Fee Breakdown</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">License Fee:</span>
-                    <span className="font-mono">0.1 ETH</span>
+              {/* Duration Information */}
+              {licenseConfig && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center text-green-800">
+                    <Calendar className="w-4 h-4 mr-2" />
+                    <span className="font-medium">License Duration: {licenseConfig.durationDays} days</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Platform Fee (10%):</span>
-                    <span className="font-mono text-red-600">-0.01 ETH</span>
-                  </div>
-                  <div className="border-t pt-2">
-                    <div className="flex justify-between font-medium">
-                      <span className="text-gray-900">Total Cost:</span>
-                      <span className="font-mono text-green-600">0.1 ETH</span>
+                  {expirationDate && (
+                    <p className="text-green-700 text-sm mt-1">
+                      Expires on: {expirationDate}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Fee Breakdown */}
+              {selectedPriceInfo && (
+                <div className="bg-gray-50 p-4 rounded-lg mb-6">
+                  <h4 className="font-semibold text-gray-900 mb-3">Fee Breakdown</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Artwork Price:</span>
+                      <span className="font-mono font-medium">{artwork?.price} ETH</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">License Percentage:</span>
+                      <span className="font-mono text-blue-600">
+                        {selectedPriceInfo.license_percentage}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">License Fee:</span>
+                      <span className="font-mono font-medium">{selectedPriceInfo.license_fee_eth.toFixed(6)} ETH</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Platform Fee:</span>
+                      <span className="font-mono text-orange-600">
+                        {selectedPriceInfo.platform_fee_eth.toFixed(6)} ETH
+                      </span>
+                    </div>
+                    <div className="border-t pt-2 mt-2">
+                      <div className="flex justify-between font-medium">
+                        <span className="text-gray-900">You Pay:</span>
+                        <span className="font-mono text-green-600">
+                          {selectedPriceInfo.total_amount_eth.toFixed(6)} ETH
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-500">
+                        <span>Owner Receives:</span>
+                        <span>{selectedPriceInfo.actual_amount_eth.toFixed(6)} ETH</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -432,7 +582,7 @@ const LicensePage = () => {
 
               <Button
                 type="submit"
-                disabled={purchasing}
+                disabled={purchasing || !selectedPriceInfo}
                 variant="contained"
                 color="primary"
                 fullWidth
@@ -442,44 +592,75 @@ const LicensePage = () => {
                 {purchasing ? (
                   <div className="flex items-center justify-center">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                    <span>Processing License...</span>
+                    <span>Processing Purchase...</span>
                   </div>
                 ) : (
                   <div className="flex items-center justify-center">
                     <Shield className="w-5 h-5 mr-2" />
-                    Purchase License (0.1 ETH)
+                    {selectedPriceInfo ? (
+                      <>Purchase License ({selectedPriceInfo.total_amount_eth.toFixed(6)} ETH)</>
+                    ) : (
+                      <>Calculate Price...</>
+                    )}
                   </div>
                 )}
               </Button>
 
               <div className="mt-4 text-xs text-gray-500 text-center">
                 <p>By purchasing a license, you agree to the platform's terms and conditions.</p>
-                <p className="mt-1">Transaction fees will be deducted automatically.</p>
+                <p className="mt-1">License valid for {licenseConfig?.durationDays || 30} days from purchase.</p>
               </div>
             </form>
           )}
         </div>
       </div>
 
-      {/* License Information */}
-      <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-        <div className="flex items-start">
-          <Shield className="w-6 h-6 text-blue-800 mt-0.5 mr-3" />
-          <div>
-            <h4 className="text-lg font-semibold text-blue-900 mb-2">License Terms</h4>
-            <p className="text-blue-800 mb-2">
-              Purchasing a license grants you specific rights to use this artwork.
-            </p>
-            <ul className="text-sm text-blue-700 space-y-1">
-              <li>• Personal Use: Non-commercial use only</li>
-              <li>• Commercial Use: Commercial use with attribution</li>
-              <li>• Exclusive Rights: Exclusive usage rights for the duration</li>
-              <li>• All licenses include automatic royalty payments to the creator</li>
-              <li>• License terms are recorded on the blockchain</li>
-            </ul>
+      {/* Configuration Information */}
+      {licenseConfig && (
+        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
+          <div className="flex items-start">
+            <Info className="w-6 h-6 text-blue-800 mt-0.5 mr-3" />
+            <div>
+              <h4 className="text-lg font-semibold text-blue-900 mb-2">
+                License Configuration: {licenseConfig.configName}
+              </h4>
+              <p className="text-blue-800 mb-3">
+                License fees are calculated as a percentage of the artwork price. 
+                Platform fee:  • Duration: {licenseConfig.durationDays} days
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="bg-white p-3 rounded-lg border border-blue-200">
+                  <h5 className="font-medium text-blue-900 mb-1 flex items-center">
+                    <Percent className="w-4 h-4 mr-1" /> Link Only
+                  </h5>
+                  <p className="text-blue-700">{priceInfo?.prices?.LINK_ONLY?.license_percentage || 20}% of price</p>
+                  <p className="text-blue-600 font-mono mt-1">
+                    {priceInfo?.prices?.LINK_ONLY?.total_amount_eth?.toFixed(6) || '0.000000'} ETH
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-blue-200">
+                  <h5 className="font-medium text-blue-900 mb-1 flex items-center">
+                    <Percent className="w-4 h-4 mr-1" /> Watermark Access
+                  </h5>
+                  <p className="text-blue-700">{priceInfo?.prices?.ACCESS_WITH_WM?.license_percentage || 70}% of price</p>
+                  <p className="text-blue-600 font-mono mt-1">
+                    {priceInfo?.prices?.ACCESS_WITH_WM?.total_amount_eth?.toFixed(6) || '0.000000'} ETH
+                  </p>
+                </div>
+                <div className="bg-white p-3 rounded-lg border border-blue-200">
+                  <h5 className="font-medium text-blue-900 mb-1 flex items-center">
+                    <Percent className="w-4 h-4 mr-1" /> Full Access
+                  </h5>
+                  <p className="text-blue-700">{priceInfo?.prices?.FULL_ACCESS?.license_percentage || 90}% of price</p>
+                  <p className="text-blue-600 font-mono mt-1">
+                    {priceInfo?.prices?.FULL_ACCESS?.total_amount_eth?.toFixed(6) || '0.000000'} ETH
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -208,7 +208,7 @@ const MyArtworks = () => {
                         <p className="text-xs text-gray-500">Price</p>
                         <p className="text-sm font-semibold">
                           {typeof artwork.price === 'number' 
-                            ? `$${artwork.price.toFixed(2)}`
+                            ? `${artwork.price.toFixed(2)}ETH`
                             : artwork.price
                           }
                         </p>
