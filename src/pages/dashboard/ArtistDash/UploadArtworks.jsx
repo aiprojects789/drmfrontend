@@ -509,27 +509,37 @@ const UploadArtworks = () => {
 
           const aiResult = await artworksAPI.classifyAI(aiFormData);
 
-          setAiClassification(aiResult);
+          // NORMALIZE the response fields
+          const normalizedAiResult = {
+            ...aiResult,
+            generated_description: aiResult.generated_description || aiResult.description || ""
+          };
+
+          setAiClassification(normalizedAiResult);
           toast.dismiss(aiToast);
 
-          if (aiResult.is_ai_generated && aiResult.confidence > 0.5) {
+          if (normalizedAiResult.is_ai_generated && normalizedAiResult.confidence > 0.5) {
             setValidationError(
-              `AI-generated content detected: ${aiResult.description}`
+              `AI-generated content detected: ${normalizedAiResult.description}`
             );
             setValidationPassed(false);
+            
+            // Even if rejected, offer the description
+            if (normalizedAiResult.generated_description && normalizedAiResult.generated_description.trim()) {
+              setValue("description", normalizedAiResult.generated_description);
+              toast("AI description available for reference", { 
+                icon: "ℹ️",
+                duration: 4000 
+              });
+            }
             return;
           } else {
             toast.success("✓ Content appears to be human-created");
 
-            // NEW: Auto-fill description if image is not AI-generated and description is available
-            if (
-              aiResult.generated_description &&
-              aiResult.generated_description.trim()
-            ) {
-              setValue("description", aiResult.generated_description);
-              toast.success(
-                "✨ Description auto-generated based on artwork analysis"
-              );
+            // AUTO-FILL DESCRIPTION - FIXED
+            if (normalizedAiResult.generated_description && normalizedAiResult.generated_description.trim()) {
+              setValue("description", normalizedAiResult.generated_description);
+              toast.success("✨ Description auto-generated based on artwork analysis");
             }
 
             checksCompleted++;
