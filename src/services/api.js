@@ -854,6 +854,51 @@ export const chatbotAPI = {
   }
 };
 
+export const recommendationAPI = {
+  // Get personalized recommendations for user
+  getRecommendations: async (userId, k = 5) => {
+    try {
+      const response = await api.get(`/recommend/${userId}?k=${k}`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to fetch recommendations:', error);
+      // Return empty recommendations if API fails
+      return {
+        recommendations: {
+          recommended_for_you: [],
+          search_based: [],
+          purchase_based: [],
+          upload_based: [],
+          view_based: []
+        }
+      };
+    }
+  },
+
+  // Search artworks with semantic search
+  searchArtworks: async (query, k = 20) => {
+    try {
+      const response = await api.get(`/search?query=${encodeURIComponent(query)}&k=${k}`);
+      return response.data;
+    } catch (error) {
+      console.error('Search failed:', error);
+      throw new Error('Search service is temporarily unavailable');
+    }
+  },
+
+  // Track artwork view for recommendations
+  trackArtworkView: async (artworkId) => {
+    try {
+      const response = await api.post(`/artwork/${artworkId}/view`);
+      return response.data;
+    } catch (error) {
+      console.error('Failed to track artwork view:', error);
+      // Don't throw error for tracking failures
+      return { success: false };
+    }
+  }
+};
+
 // Web3 API
 export const web3API = {
   getStatus: () => 

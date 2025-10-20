@@ -23,6 +23,7 @@ import AdminHome from '../pages/dashboard/AdminDash/AdminHome'
 import ControlArtworks from '../pages/dashboard/AdminDash/ControlArtworks'
 import UsersManagement from '../pages/dashboard/AdminDash/UserManagement'
 import AdminManagement from '../pages/dashboard/AdminDash/AdminManagement'
+import LicensesPage from '../pages/LicensesPage';
 import ScrollRestore from '../components/ScrollRestore'
 import ProtectedRoute from './ProtectedRoutes'
 import SalePage from '../pages/SalePage'
@@ -46,6 +47,7 @@ const AppRoutes = () => {
                     <Route path="sale/:tokenId" element={<SalePage />} />
                     <Route path="license/:tokenId" element={<LicensePage />} />
                     <Route path="artwork/:tokenId" element={<ArtworkDetail />} />
+                    <Route path="/licenses" element={<LicensesPage />} />
 
                     {/* User Dashboard routes with MainLayout */}
                     <Route 
