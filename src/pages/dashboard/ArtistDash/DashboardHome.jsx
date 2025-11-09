@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import BoxCard from '../../../components/dashboard/BoxCard';
 import { artworksAPI, licensesAPI, transactionsAPI } from '../../../services/api';
 import { useAuth } from '../../../context/AuthContext';
+import { UserIdentifier, CurrencyConverter } from '../../../utils/currencyUtils';
 
 const DashboardHome = () => {
   const { user } = useAuth();
@@ -19,20 +20,26 @@ const DashboardHome = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Get user identifier
+  const userIdentifier = UserIdentifier.getUserIdentifier(user);
+  const isPayPalUser = UserIdentifier.isPayPalUser(user);
+
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
         
-        if (!user?.wallet_address) {
-          throw new Error('User wallet address not available');
+        if (!userIdentifier) {
+          throw new Error('User identifier not available');
         }
 
-        // Fetch all data in parallel for better performance
+        console.log(`📊 Fetching dashboard data for: ${userIdentifier}`);
+
+        // Fetch all data in parallel
         const [artworksResponse, licensesResponse, transactionsResponse] = await Promise.allSettled([
-          artworksAPI.getByCreator(user.wallet_address, { page: 1, size: 1 }), // We only need count
-          licensesAPI.getByUser(user.wallet_address, { as_licensee: false }),
-          transactionsAPI.getByUser(user.wallet_address)
+          artworksAPI.getByCreator(userIdentifier, { page: 1, size: 1 }),
+          licensesAPI.getByUser(userIdentifier, { as_licensee: false }),
+          transactionsAPI.getByUser(userIdentifier)
         ]);
 
         // Process artworks data
@@ -58,18 +65,24 @@ const DashboardHome = () => {
             tx.transaction_type === 'ROYALTY_PAYMENT' && tx.status === 'CONFIRMED'
           );
           
+          // Sum earnings in ETH
           totalEarnings = royaltyTransactions.reduce((sum, tx) => {
             const value = parseFloat(tx.value) || 0;
             return sum + value;
           }, 0);
         }
 
-        // Format earnings as USD (assuming 1 ETH = $2000 for demo purposes)
-        const ethToUsdRate = 2000;
-        const formattedEarnings = new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency: 'USD'
-        }).format(totalEarnings * ethToUsdRate);
+        // Format earnings based on user type
+        let formattedEarnings;
+        if (isPayPalUser) {
+          // Show USD for PayPal users
+          const usdEarnings = CurrencyConverter.ethToUsd(totalEarnings);
+          formattedEarnings = CurrencyConverter.formatUsd(usdEarnings);
+        } else {
+          // Show both for crypto users
+          const usdEarnings = CurrencyConverter.ethToUsd(totalEarnings);
+          formattedEarnings = `${CurrencyConverter.formatEth(totalEarnings)} (${CurrencyConverter.formatUsd(usdEarnings)})`;
+        }
 
         // Update stats
         setStats([
@@ -103,8 +116,10 @@ const DashboardHome = () => {
       }
     };
 
-    fetchDashboardData();
-  }, [user?.wallet_address]);
+    if (userIdentifier) {
+      fetchDashboardData();
+    }
+  }, [userIdentifier]);
 
   const refreshData = () => {
     setStats(stats.map(stat => ({ ...stat, loading: true })));
@@ -117,13 +132,8 @@ const DashboardHome = () => {
     setLoading(true);
     setError(null);
     
-    // Re-fetch data
-    useEffect(() => {
-      const fetchDashboardData = async () => {
-        // ... same fetch logic as above
-      };
-      fetchDashboardData();
-    }, [user?.wallet_address]);
+    // Trigger re-fetch by changing a dependency
+    window.location.reload();
   };
 
   if (loading) {
@@ -143,6 +153,10 @@ const DashboardHome = () => {
           <div>
             <h1 className="text-3xl font-bold text-purple-900">Dashboard Overview</h1>
             <p className="text-purple-700 mt-2">Welcome back! Here's your creative portfolio summary.</p>
+            {/* User Type Indicator */}
+            <p className="text-sm text-purple-600 mt-1">
+              Account Type: {isPayPalUser ? '💳 PayPal User' : '👛 Crypto User'}
+            </p>
           </div>
           <button 
             onClick={refreshData}

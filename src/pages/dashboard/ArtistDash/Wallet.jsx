@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { DollarSign, ArrowRight, CreditCard, Wallet, TrendingUp, Clock, ArrowUpRight } from 'lucide-react';
 import { Badge, Card, Button } from '@mui/material';
 import { useWeb3 } from '../../../context/Web3Context';
 import { useAuth } from '../../../context/AuthContext';
 import { transactionsAPI, artworksAPI } from '../../../services/api';
+import { UserIdentifier, CurrencyConverter } from '../../../utils/currencyUtils';
 import LoadingSpinner from '../../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
 
 const Wallets = () => {
-  const { account, isCorrectNetwork } = useWeb3();
-  const { isAuthenticated, isWalletConnected } = useAuth();
+  const { account, isCorrectNetwork, balance } = useWeb3();
+  const { isAuthenticated, isWalletConnected, user } = useAuth();
 
   const [isLoading, setIsLoading] = useState(true);
   const [transactions, setTransactions] = useState([]);
@@ -18,22 +19,25 @@ const Wallets = () => {
   const [error, setError] = useState(null);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
 
+  // Get user identifier for API calls
+  const userIdentifier = UserIdentifier.getUserIdentifier(user);
+
   // Fetch transactions and artworks
   useEffect(() => {
-    if (!isAuthenticated || !account) return;
+    if (!isAuthenticated || !userIdentifier) return;
 
     const fetchData = async () => {
       setIsLoading(true);
       setError(null);
       
       try {
-        console.log(`🔄 Fetching royalty data for account: ${account}`);
+        console.log(`🔄 Fetching royalty data for user: ${userIdentifier}`);
 
         // Fetch all data in parallel
         const [txsRes, artsRes, earningsRes] = await Promise.allSettled([
-          transactionsAPI.getByUser(account),
-          artworksAPI.getByCreator(account),
-          transactionsAPI.getByUser(account, { type: 'ROYALTY' })
+          transactionsAPI.getByUser(userIdentifier),
+          artworksAPI.getByCreator(userIdentifier),
+          transactionsAPI.getByUser(userIdentifier, { type: 'ROYALTY' })
         ]);
 
         // Handle transactions
@@ -79,7 +83,7 @@ const Wallets = () => {
     };
 
     fetchData();
-  }, [isAuthenticated, account]);
+  }, [isAuthenticated, userIdentifier]);
 
   const handleWithdraw = () => {
     setIsWithdrawing(true);
@@ -101,8 +105,18 @@ const Wallets = () => {
     return type?.replace('_', ' ') || 'Unknown';
   };
 
+  // Format amount with currency
+  const formatAmount = (tx) => {
+    const amount = tx.value || '0';
+    if (tx.payment_method === 'paypal') {
+      const usdAmount = CurrencyConverter.ethToUsd(amount);
+      return CurrencyConverter.formatUsd(usdAmount);
+    }
+    return CurrencyConverter.formatEth(amount);
+  };
+
   // Redirect if not authenticated
-  if (isAuthenticated && !isWalletConnected) {
+  if (isAuthenticated && UserIdentifier.isCryptoUser(user) && !isWalletConnected) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg p-8">
@@ -123,6 +137,9 @@ const Wallets = () => {
         <h1 className="text-2xl font-bold text-gray-900">Wallet & Royalties</h1>
         <p className="mt-1 text-sm text-gray-500">
           Manage your earnings and withdraw funds
+        </p>
+        <p className="mt-1 text-xs text-gray-400">
+          User: {userIdentifier} ({UserIdentifier.isPayPalUser(user) ? 'PayPal' : 'Crypto'})
         </p>
       </div>
 
@@ -146,7 +163,7 @@ const Wallets = () => {
                 <div>
                   <p className="text-sm font-medium text-gray-500">Total Royalties</p>
                   <p className="text-xl font-semibold text-gray-900">
-                    {isLoading ? '...' : `${royaltyEarnings} ETH`}
+                    {isLoading ? '...' : CurrencyConverter.formatDual(royaltyEarnings)}
                   </p>
                 </div>
               </div>
@@ -190,7 +207,7 @@ const Wallets = () => {
                   <p className="mt-1 text-sm text-gray-500">Ready to withdraw</p>
                 </div>
                 <div className="text-3xl font-bold text-gray-900">
-                  {isLoading ? '...' : `${royaltyEarnings} ETH`}
+                  {isLoading ? '...' : CurrencyConverter.formatDual(royaltyEarnings)}
                 </div>
               </div>
               <div className="mt-6">
@@ -252,6 +269,15 @@ const Wallets = () => {
                           </p>
                           <p className="text-sm text-gray-500">
                             {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : 'N/A'}
+                            {tx.payment_method && (
+                              <span className={`ml-2 px-2 py-1 text-xs rounded-full ${
+                                tx.payment_method === 'paypal' 
+                                  ? 'bg-yellow-100 text-yellow-800' 
+                                  : 'bg-blue-100 text-blue-800'
+                              }`}>
+                                {tx.payment_method}
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -260,7 +286,7 @@ const Wallets = () => {
                           tx.transaction_type === 'ROYALTY' ? 'text-green-600' : 
                           tx.value && parseFloat(tx.value) > 0 ? 'text-blue-600' : 'text-gray-500'
                         }`}>
-                          {tx.value ? `${parseFloat(tx.value).toFixed(4)} ETH` : 'N/A'}
+                          {formatAmount(tx)}
                         </span>
                         {tx.tx_hash && (
                           <a 
@@ -290,18 +316,40 @@ const Wallets = () => {
               <h3 className="text-lg font-medium text-gray-900">Payment Methods</h3>
             </div>
             <div className="p-6">
-              <div className="mb-6">
-                <h4 className="text-sm font-medium text-gray-900 mb-2">Connected Wallet</h4>
-                <div className="flex items-center p-4 bg-gray-50 rounded-lg">
-                  <Wallet className="h-5 w-5 text-gray-400" />
-                  <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-900">
-                      {account ? formatAddress(account) : 'Not connected'}
-                    </p>
-                    <p className="text-xs text-gray-500">Ethereum</p>
+              {UserIdentifier.isCryptoUser(user) && (
+                <div className="mb-6">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Connected Wallet</h4>
+                  <div className="flex items-center p-4 bg-gray-50 rounded-lg">
+                    <Wallet className="h-5 w-5 text-gray-400" />
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-900">
+                        {account ? formatAddress(account) : 'Not connected'}
+                      </p>
+                      <p className="text-xs text-gray-500">Ethereum</p>
+                      {balance && (
+                        <p className="text-xs text-green-600 mt-1">
+                          Balance: {CurrencyConverter.formatEth(balance)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
+
+              {UserIdentifier.isPayPalUser(user) && (
+                <div className="mb-6">
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">PayPal Account</h4>
+                  <div className="flex items-center p-4 bg-yellow-50 rounded-lg">
+                    <CreditCard className="h-5 w-5 text-yellow-600" />
+                    <div className="ml-3">
+                      <p className="text-sm font-medium text-gray-900">
+                        Connected PayPal Account
+                      </p>
+                      <p className="text-xs text-gray-500">PayPal</p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-2">Bank Account</h4>

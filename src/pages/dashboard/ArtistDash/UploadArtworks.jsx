@@ -17,6 +17,8 @@ import {
   Copy,
   AlertTriangle,
   Image as ImageIcon,
+  CreditCard,
+  Wallet,
 } from "lucide-react";
 import {
   Button,
@@ -32,6 +34,7 @@ import {
 import { useWeb3 } from "../../../context/Web3Context";
 import { useAuth } from "../../../context/AuthContext";
 import { artworksAPI } from "../../../services/api";
+import { UserIdentifier, CurrencyConverter } from "../../../utils/currencyUtils";
 import LoadingSpinner from "../../../components/common/LoadingSpinner";
 import toast from "react-hot-toast";
 import imageCompression from "browser-image-compression";
@@ -45,7 +48,7 @@ const schema = yup.object({
   title: yup.string().required("Title is required").max(100, "Title too long"),
   description: yup
     .string()
-    .required("Description is required") // Add this line
+    .required("Description is required")
     .max(1000, "Description too long"),
   royalty_percentage: yup
     .number()
@@ -94,7 +97,7 @@ const schema = yup.object({
 const UploadArtworks = () => {
   const navigate = useNavigate();
   const { account, sendTransaction, isCorrectNetwork } = useWeb3();
-  const { isAuthenticated, isWalletConnected } = useAuth();
+  const { isAuthenticated, isWalletConnected, user } = useAuth();
 
   const loyaltyPercentage = [
     { id: 1, percentage: "5%", value: 500 },
@@ -104,8 +107,6 @@ const UploadArtworks = () => {
   ];
 
   const aiModels = [
-    { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash (Fast)" },
-    { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro (Accurate)" },
     { id: "openai-gpt4.1", name: "OpenAI GPT-4.1" },
     { id: "groq-llama-3.3-70b", name: "Groq Llama-3.3 70B" },
     { id: "groq-gpt-oss-20b", name: "Groq GPT-OSS-20B" },
@@ -119,6 +120,7 @@ const UploadArtworks = () => {
   const [selectedAIModel, setSelectedAIModel] = useState(aiModels[0].id);
   const [blazeFaceModel, setBlazeFaceModel] = useState(null);
   const [faceDetectionError, setFaceDetectionError] = useState(null);
+  const [priceInputMode, setPriceInputMode] = useState("eth"); // "eth" or "usd"
 
   // NEW: State for categories
   const [categories, setCategories] = useState({
@@ -144,6 +146,7 @@ const UploadArtworks = () => {
   const [validationPassed, setValidationPassed] = useState(false);
   const [validationError, setValidationError] = useState(null);
   const [existingArtworkDetails, setExistingArtworkDetails] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("crypto");
 
   const {
     register,
@@ -165,6 +168,7 @@ const UploadArtworks = () => {
       other_style: "",
       other_subject: "",
       image: null,
+      description: "", // ✅ Ensure this is empty, not "Hand-painted artwork"
     },
   });
 
@@ -172,6 +176,7 @@ const UploadArtworks = () => {
   const mediumCategory = watch("medium_category");
   const styleCategory = watch("style_category");
   const subjectCategory = watch("subject_category");
+  const priceValue = watch("price");
 
   // Load categories on component mount
   useEffect(() => {
@@ -242,6 +247,17 @@ const UploadArtworks = () => {
   useEffect(() => {
     setShowOtherSubject(subjectCategory === "Other Subject");
   }, [subjectCategory]);
+
+  // Handle price input mode changes
+  useEffect(() => {
+    if (priceValue && !isNaN(priceValue)) {
+      if (priceInputMode === "usd") {
+        // Convert USD to ETH for display
+        const ethPrice = CurrencyConverter.usdToEth(priceValue);
+        setValue("price", ethPrice.toFixed(6));
+      }
+    }
+  }, [priceInputMode]);
 
   // Load TensorFlow.js and BlazeFace model
   useEffect(() => {
@@ -509,37 +525,93 @@ const UploadArtworks = () => {
 
           const aiResult = await artworksAPI.classifyAI(aiFormData);
 
+          // TEMPORARY DEBUG LOGGING
+          console.log("=== RAW AI API RESPONSE ===");
+          console.log("Full response:", aiResult);
+          console.log("is_ai_generated:", aiResult.is_ai_generated);
+          console.log("confidence:", aiResult.confidence);
+          console.log("description:", aiResult.description);
+          console.log("=== END DEBUG ===");
+
           // NORMALIZE the response fields
           const normalizedAiResult = {
             ...aiResult,
-            generated_description: aiResult.generated_description || aiResult.description || ""
           };
 
           setAiClassification(normalizedAiResult);
           toast.dismiss(aiToast);
 
-          if (normalizedAiResult.is_ai_generated && normalizedAiResult.confidence > 0.5) {
+          // FIXED: Match backend logic - if is_ai_generated is True, reject regardless of confidence
+          const isAIGenerated = normalizedAiResult.is_ai_generated;
+          const confidence = normalizedAiResult.confidence || 0;
+          
+          console.log("AI Detection Analysis:");
+          console.log("is_ai_generated:", isAIGenerated);
+          console.log("confidence:", confidence);
+          console.log("Type of is_ai_generated:", typeof isAIGenerated);
+
+          // FIXED: If backend says it's AI-generated, trust that decision
+          // Don't apply additional confidence threshold on frontend
+          const shouldRejectAsAI = isAIGenerated === true;
+
+          console.log("Should reject as AI:", shouldRejectAsAI);
+
+          if (shouldRejectAsAI) {
+            console.log("❌ REJECTING: AI-generated content detected by backend");
             setValidationError(
-              `AI-generated content detected: ${normalizedAiResult.description}`
+              `AI-generated content detected: ${normalizedAiResult.description} (${(confidence * 100).toFixed(1)}% confidence)`
             );
             setValidationPassed(false);
-            
+
             // Even if rejected, offer the description
-            if (normalizedAiResult.generated_description && normalizedAiResult.generated_description.trim()) {
-              setValue("description", normalizedAiResult.generated_description);
-              toast("AI description available for reference", { 
+            const descriptionToUse = normalizedAiResult.description;
+            if (descriptionToUse && descriptionToUse.trim()) {
+              setValue("description", descriptionToUse);
+              toast("AI description available for reference", {
                 icon: "ℹ️",
-                duration: 4000 
+                duration: 4000,
               });
             }
+
+            // STOP further processing
+            setIsChecking(false);
             return;
           } else {
+            console.log("✅ ACCEPTING: Content appears to be human-created");
             toast.success("✓ Content appears to be human-created");
 
-            // AUTO-FILL DESCRIPTION - FIXED
-            if (normalizedAiResult.generated_description && normalizedAiResult.generated_description.trim()) {
-              setValue("description", normalizedAiResult.generated_description);
-              toast.success("✨ Description auto-generated based on artwork analysis");
+            // ✅ FIXED: AUTO-FILL DESCRIPTION - Use the actual description from API
+            const apiDescription = normalizedAiResult.description;
+            
+            console.log("=== DEBUG AI DESCRIPTION ===");
+            console.log("API Description:", apiDescription);
+            console.log("Description length:", apiDescription?.length);
+            console.log("Is different from fallback:", apiDescription !== "Hand-painted artwork");
+            console.log("=== END DEBUG ===");
+
+            // Only auto-fill if we have a meaningful description from API
+            if (apiDescription && 
+                apiDescription.trim() && 
+                apiDescription.length > 10 && // Ensure it's not too short
+                apiDescription !== "Hand-painted artwork") {
+              
+              // Clear any existing value first to ensure it updates
+              setValue("description", "");
+              
+              // Use timeout to ensure the clear happens before setting new value
+              setTimeout(() => {
+                setValue("description", apiDescription);
+                toast.success("✨ Description auto-generated based on artwork analysis");
+                console.log("✅ Successfully auto-filled description from API:", apiDescription);
+              }, 100);
+              
+            } else {
+              console.warn("Not auto-filling description because:", {
+                hasDescription: !!apiDescription,
+                isNotEmpty: apiDescription?.trim()?.length > 0,
+                isLongEnough: apiDescription?.length > 10,
+                isNotFallback: apiDescription !== "Hand-painted artwork"
+              });
             }
 
             checksCompleted++;
@@ -580,9 +652,7 @@ const UploadArtworks = () => {
           } else {
             if (aiAttempts >= maxAiAttempts) {
               toast.dismiss(aiToast);
-              toast.error(
-                "AI classification failed - proceeding with caution"
-              );
+              toast.error("AI classification failed - proceeding with caution");
               setAiClassification({
                 is_ai_generated: false,
                 description: `Classification failed: ${error.message}`,
@@ -598,7 +668,6 @@ const UploadArtworks = () => {
           }
         }
       }
-
       // UPDATED: Final validation with better logging
       console.log(
         `Final validation: ${checksCompleted}/${totalChecks} checks completed`
@@ -635,13 +704,16 @@ const UploadArtworks = () => {
 
   // Enhanced submit function with categories and price
   const onSubmit = async (data) => {
-    if (!isCorrectNetwork || !account) {
-      toast.error(
-        !isCorrectNetwork
-          ? "Please switch to Sepolia testnet first"
-          : "Wallet not connected"
-      );
-      return;
+    // Check payment method requirements
+    if (paymentMethod === "crypto") {
+      if (!isCorrectNetwork || !account) {
+        toast.error(
+          !isCorrectNetwork
+            ? "Please switch to Sepolia testnet first"
+            : "Wallet not connected"
+        );
+        return;
+      }
     }
 
     if (!validationPassed) {
@@ -655,19 +727,26 @@ const UploadArtworks = () => {
       // Compress image before upload
       const compressedImage = await compressImage(data.image);
 
+      // Convert price to ETH if input was in USD
+      let finalPrice = data.price;
+      if (priceInputMode === "usd") {
+        finalPrice = CurrencyConverter.usdToEth(data.price);
+      }
+
       // Create FormData with compressed image, categories, and price
       const formData = new FormData();
       formData.append("title", data.title);
       formData.append("description", data.description || "");
+      formData.append("payment_method", paymentMethod);
       formData.append("royalty_percentage", data.royalty_percentage.toString());
-      formData.append("price", data.price.toString()); // NEW: Add price
-      formData.append("medium_category", data.medium_category); // NEW: Add categories
+      formData.append("price", finalPrice.toString());
+      formData.append("medium_category", data.medium_category);
       formData.append("style_category", data.style_category);
       formData.append("subject_category", data.subject_category);
       formData.append("ai_model", selectedAIModel);
       formData.append("image", compressedImage, data.image.name);
 
-      // NEW: Add other category fields if they exist
+      // Add other category fields if they exist
       if (data.other_medium) {
         formData.append("other_medium", data.other_medium);
       }
@@ -720,62 +799,78 @@ const UploadArtworks = () => {
         }
       }
 
-      if (!preparation.transaction_data) {
-        throw new Error("Backend did not return transaction data");
-      }
-
-      setCurrentStep("blockchain");
-
-      // Phase 2: Send blockchain transaction
-      const txToast = toast.loading("Sending transaction...");
-      const txResponse = await sendTransaction({
-        ...preparation.transaction_data,
-        from: account,
-        gas: 500000,
-      });
-      toast.dismiss(txToast);
-
-      // Phase 3: Confirm registration (include categories and price)
-      const finalizingToast = toast.loading("Finalizing registration...");
-      try {
-        const confirmation = await artworksAPI.confirmRegistration({
-          tx_hash: txResponse.hash,
-          from_address: account,
-          metadata_uri: preparation.metadata_uri,
-          image_uri: preparation.image_uri,
-          image_metadata: preparation.image_metadata,  
-          royalty_percentage: data.royalty_percentage,
-          price: data.price,
-          title: data.title,
-          description: data.description,
-          categories: {
-            medium: data.medium_category,
-            style: data.style_category,
-            subject: data.subject_category,
-            other_medium: data.other_medium || null,
-            other_style: data.other_style || null,
-            other_subject: data.other_subject || null,
-          },
-        });
-
-        if (!confirmation.success) {
-          console.warn("Registration confirmation had issues:", confirmation);
+      // Handle PayPal response
+      if (preparation.payment_method === "paypal") {
+        if (preparation.status === "onboarding_required") {
+          // Redirect to PayPal onboarding
+          window.location.href = preparation.onboarding_url;
+          return;
         }
 
-        toast.dismiss(finalizingToast);
-      } catch (confirmError) {
-        console.warn(
-          "Registration confirmation failed, but transaction was successful:",
-          confirmError
-        );
-        toast.dismiss(finalizingToast);
+        // Redirect to PayPal for payment
+        window.location.href = preparation.order_data.approval_url;
+        return;
       }
 
-      // Success
-      setTransactionHash(txResponse.hash);
-      toast.success("Artwork registered successfully!");
-      reset();
-      setCurrentStep("complete");
+      // Handle MetaMask flow (existing code)
+      if (preparation.payment_method === "crypto") {
+        if (!preparation.transaction_data) {
+          throw new Error("Backend did not return transaction data");
+        }
+
+        setCurrentStep("blockchain");
+
+        // Phase 2: Send blockchain transaction
+        const txToast = toast.loading("Sending transaction...");
+        const txResponse = await sendTransaction({
+          ...preparation.transaction_data,
+          from: account,
+          gas: 500000,
+        });
+        toast.dismiss(txToast);
+
+        // Phase 3: Confirm registration (include categories and price)
+        const finalizingToast = toast.loading("Finalizing registration...");
+        try {
+          const confirmation = await artworksAPI.confirmRegistration({
+            tx_hash: txResponse.hash,
+            from_address: account,
+            metadata_uri: preparation.metadata_uri,
+            image_uri: preparation.image_uri,
+            image_metadata: preparation.image_metadata,
+            royalty_percentage: data.royalty_percentage,
+            price: finalPrice,
+            title: data.title,
+            description: data.description,
+            categories: {
+              medium: data.medium_category,
+              style: data.style_category,
+              subject: data.subject_category,
+              other_medium: data.other_medium || null,
+              other_style: data.other_style || null,
+              other_subject: data.other_subject || null,
+            },
+          });
+
+          if (!confirmation.success) {
+            console.warn("Registration confirmation had issues:", confirmation);
+          }
+
+          toast.dismiss(finalizingToast);
+        } catch (confirmError) {
+          console.warn(
+            "Registration confirmation failed, but transaction was successful:",
+            confirmError
+          );
+          toast.dismiss(finalizingToast);
+        }
+
+        // Success
+        setTransactionHash(txResponse.hash);
+        toast.success("Artwork registered successfully!");
+        reset();
+        setCurrentStep("complete");
+      }
     } catch (error) {
       toast.dismiss();
       console.error("Registration error:", error);
@@ -866,6 +961,16 @@ const UploadArtworks = () => {
         "Please wait for validation checks to complete or fix validation issues"
       );
     }
+  };
+
+  // Format price display
+  const formatPriceDisplay = () => {
+    if (!priceValue || isNaN(priceValue)) return "Enter price";
+    
+    if (priceInputMode === "usd") {
+      return CurrencyConverter.formatUsd(priceValue);
+    }
+    return CurrencyConverter.formatEth(priceValue);
   };
 
   // Validation status component
@@ -1200,19 +1305,61 @@ const UploadArtworks = () => {
         )}
       </div>
 
+      {/* Price Input with Currency Selection */}
       <div>
-        <InputLabel htmlFor="price">Price (ETH) *</InputLabel>
-        <Input
-          id="price"
-          type="number"
-          step="0.001"
-          {...register("price")}
-          error={!!errors.price}
-          fullWidth
-        />
+        <InputLabel htmlFor="price">Price *</InputLabel>
+        <div className="flex space-x-2">
+          <div className="flex-1">
+            <Input
+              id="price"
+              type="number"
+              step="0.001"
+              {...register("price")}
+              error={!!errors.price}
+              fullWidth
+              placeholder={priceInputMode === "usd" ? "Enter price in USD" : "Enter price in ETH"}
+            />
+          </div>
+          <div className="w-32">
+            <select
+              value={priceInputMode}
+              onChange={(e) => setPriceInputMode(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-purple-500 focus:border-purple-500"
+            >
+              <option value="eth">ETH</option>
+              <option value="usd">USD</option>
+            </select>
+          </div>
+        </div>
         {errors.price && (
           <p className="mt-1 text-sm text-red-600">{errors.price.message}</p>
         )}
+        {priceValue && !isNaN(priceValue) && (
+          <p className="mt-1 text-sm text-gray-500">
+            {priceInputMode === "usd" 
+              ? `≈ ${CurrencyConverter.formatEth(CurrencyConverter.usdToEth(priceValue))}`
+              : `≈ ${CurrencyConverter.formatUsd(CurrencyConverter.ethToUsd(priceValue))}`
+            }
+          </p>
+        )}
+      </div>
+
+      <div className="mb-6">
+        <InputLabel htmlFor="payment-method">Payment Method *</InputLabel>
+        <select
+          id="payment-method"
+          value={paymentMethod}
+          onChange={(e) => setPaymentMethod(e.target.value)}
+          className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500"
+        >
+          <option value="crypto">MetaMask (Crypto)</option>
+          <option value="paypal">PayPal</option>
+        </select>
+        <p className="mt-1 text-xs text-gray-500">
+          {paymentMethod === "crypto"
+            ? "Register on blockchain using MetaMask (requires ETH for gas fees)"
+            : "Register using PayPal (no crypto wallet needed)"}
+        </p>
       </div>
 
       <div>
@@ -1237,7 +1384,7 @@ const UploadArtworks = () => {
         )}
       </div>
 
-      {/* NEW: Category Selection */}
+      {/* Category Selection */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Medium Category */}
         <div>
@@ -1462,7 +1609,7 @@ const UploadArtworks = () => {
             <span className="ml-2">Registering...</span>
           </div>
         ) : (
-          "Register Your Artwork"
+          `Register Your Artwork (${paymentMethod === 'crypto' ? 'Crypto' : 'PayPal'})`
         )}
       </Button>
     </form>
@@ -1589,7 +1736,7 @@ const UploadArtworks = () => {
     </div>
   );
 
-  if (isAuthenticated && !isWalletConnected) {
+  if (isAuthenticated && UserIdentifier.isCryptoUser(user) && !isWalletConnected) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg p-8">

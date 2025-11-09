@@ -3,6 +3,7 @@ import { Menu, X } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@mui/material";
 import WalletButton from "./WalletButton";
+import PayPalButton from "./PaypalButton";
 import { useAuth } from "../context/AuthContext";
 import { useWeb3 } from "../context/Web3Context";
 
@@ -124,8 +125,12 @@ const Navbar = () => {
 
           {/* Right side buttons (Desktop) */}
           <div className="hidden md:flex md:items-center md:space-x-4">
-            {/* Show WalletButton if user is authenticated OR wallet is connected */}
-            {shouldShowWalletButton && <WalletButton />}
+            {/* Wrap wallet button so dropdown shows on top */}
+            <div className="relative z-[9999]">
+              {shouldShowWalletButton && <WalletButton />}
+            </div>
+
+            {isAuthenticated && <PayPalButton />}
 
             {isAuthenticated ? (
               <div
@@ -234,6 +239,12 @@ const Navbar = () => {
             {shouldShowWalletButton && (
               <div className="py-2">
                 <WalletButton />
+              </div>
+            )}
+
+            {isAuthenticated && (
+              <div className="py-2">
+                <PayPalButton />
               </div>
             )}
 

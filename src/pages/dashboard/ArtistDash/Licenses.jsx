@@ -1,530 +1,3 @@
-// import React, { useState, useEffect } from "react";
-// import { 
-//   Shield, 
-//   Clock, 
-//   XCircle, 
-//   CheckCircle, 
-//   FileText, 
-//   Search, 
-//   Filter, 
-//   Download,
-//   RefreshCw,
-//   Eye,
-//   ExternalLink
-// } from "lucide-react";
-// import { useWeb3 } from "../../../context/Web3Context";
-// import { useAuth } from "../../../context/AuthContext";
-// import { licensesAPI } from "../../../services/api";
-// import LoadingSpinner from "../../../components/common/LoadingSpinner";
-// import toast from "react-hot-toast";
-
-// const Licenses = () => {
-//   const { account, isCorrectNetwork } = useWeb3();
-//   const { isAuthenticated, isWalletConnected } = useAuth();
-
-//   const [licenses, setLicenses] = useState([]);
-//   const [filteredLicenses, setFilteredLicenses] = useState([]);
-//   const [isLoading, setIsLoading] = useState(true);
-//   const [isRefreshing, setIsRefreshing] = useState(false);
-//   const [searchTerm, setSearchTerm] = useState("");
-//   const [statusFilter, setStatusFilter] = useState("all");
-//   const [typeFilter, setTypeFilter] = useState("all");
-//   const [viewType, setViewType] = useState("licensee"); // "licensee" or "licensor"
-
-//   // Fetch licenses data
-//   const fetchLicenses = async () => {
-//     if (!isAuthenticated || !account) return;
-    
-//     setIsRefreshing(true);
-    
-//     try {
-//       console.log(`🔄 Fetching licenses for ${account} as ${viewType}`);
-      
-//       const response = await licensesAPI.getByUser(account, { 
-//         as_licensee: viewType === "licensee", // true for licensee, false for licensor
-//         page: 1,
-//         size: 100
-//       });
-      
-//       let userLicenses = [];
-      
-//       // Handle different response structures
-//       if (response && response.licenses && Array.isArray(response.licenses)) {
-//         userLicenses = response.licenses;
-//         console.log("📦 Found licenses in response.licenses");
-//       } else if (response && Array.isArray(response)) {
-//         userLicenses = response;
-//         console.log("📦 Found licenses as direct array");
-//       } else if (response && response.data && response.data.licenses) {
-//         userLicenses = response.data.licenses;
-//         console.log("📦 Found licenses in response.data.licenses");
-//       } else if (response && response.data && Array.isArray(response.data)) {
-//         userLicenses = response.data;
-//         console.log("📦 Found licenses in response.data array");
-//       } else {
-//         console.warn("⚠️ Unexpected licenses response structure:", response);
-//         userLicenses = [];
-//       }
-      
-//       // Filter out any invalid license objects
-//       const validLicenses = userLicenses.filter(license => {
-//         const isValid = license && 
-//                (license.license_id !== undefined || license.id !== undefined) &&
-//                license.token_id !== undefined;
-//         if (!isValid) {
-//           console.warn("⚠️ Filtering out invalid license:", license);
-//         }
-//         return isValid;
-//       });
-      
-//       console.log(`✅ Setting ${validLicenses.length} valid licenses`);
-//       setLicenses(validLicenses);
-//       setFilteredLicenses(validLicenses);
-      
-//     } catch (error) {
-//       console.error("❌ Error fetching licenses:", error);
-//       toast.error("Failed to load licenses");
-//       setLicenses([]);
-//       setFilteredLicenses([]);
-//     } finally {
-//       setIsLoading(false);
-//       setIsRefreshing(false);
-//     }
-//   };
-
-//   useEffect(() => {
-//     if (isAuthenticated && account) {
-//       fetchLicenses();
-//     } else {
-//       setIsLoading(false);
-//     }
-//   }, [isAuthenticated, account, viewType]);
-
-//   // Filter licenses based on search and filters
-//   useEffect(() => {
-//     let result = licenses;
-    
-//     // Apply search filter
-//     if (searchTerm) {
-//       const term = searchTerm.toLowerCase();
-//       result = result.filter(license => {
-//         const artworkTitle = license.artwork?.title || `Token #${license.token_id}`;
-//         const licensee = license.licensee_address || "";
-//         const licensor = license.licensor_address || "";
-//         const tokenId = license.token_id?.toString() || "";
-        
-//         return (
-//           artworkTitle.toLowerCase().includes(term) ||
-//           licensee.toLowerCase().includes(term) ||
-//           licensor.toLowerCase().includes(term) ||
-//           tokenId.includes(term)
-//         );
-//       });
-//     }
-    
-//     // Apply status filter
-//     if (statusFilter !== "all") {
-//       result = result.filter(license => {
-//         if (statusFilter === "active") {
-//           return license.is_active !== false && 
-//                  new Date(license.end_date) > new Date();
-//         } else if (statusFilter === "expired") {
-//           return new Date(license.end_date) <= new Date();
-//         } else if (statusFilter === "revoked") {
-//           return license.is_active === false;
-//         }
-//         return true;
-//       });
-//     }
-    
-//     // Apply type filter
-//     if (typeFilter !== "all") {
-//       result = result.filter(license => license.license_type === typeFilter);
-//     }
-    
-//     setFilteredLicenses(result);
-//   }, [searchTerm, statusFilter, typeFilter, licenses]);
-
-//   // Function to refresh licenses
-//   const handleRefresh = () => {
-//     setIsRefreshing(true);
-//     fetchLicenses();
-//   };
-
-//   // Function to revoke license (only for licensor view)
-//   const handleRevokeLicense = async (licenseId) => {
-//     if (!isCorrectNetwork) {
-//       toast.error("Please switch to Sepolia testnet first");
-//       return;
-//     }
-
-//     if (viewType !== "licensor") {
-//       toast.error("Only licensors can revoke licenses");
-//       return;
-//     }
-
-//     try {
-//       const revokeToast = toast.loading("Revoking license...");
-      
-//       const response = await licensesAPI.revoke(licenseId);
-      
-//       toast.dismiss(revokeToast);
-      
-//       if (response.success) {
-//         toast.success("License revoked successfully!");
-//         // Refresh the licenses list
-//         setTimeout(() => {
-//           fetchLicenses();
-//         }, 1000);
-//       } else {
-//         toast.error(response.message || "Failed to revoke license");
-//       }
-//     } catch (error) {
-//       console.error("Error revoking license:", error);
-//       toast.error("Failed to revoke license");
-//     }
-//   };
-
-//   // Function to download license document
-//   const handleDownloadLicense = async (licenseId) => {
-//     try {
-//       toast.info("License document download not yet implemented");
-//     } catch (error) {
-//       console.error("Error downloading license document:", error);
-//       toast.error("Failed to download license document");
-//     }
-//   };
-
-//   // Function to view license details
-//   const handleViewLicense = (license) => {
-//     const licenseId = license.license_id || license.id;
-//     toast.info(`Viewing license #${licenseId} details`);
-//     // You can implement a modal or navigate to a detail page here
-//   };
-
-//   // Function to check if license is expired
-//   const isLicenseExpired = (endDate) => {
-//     return new Date(endDate) <= new Date();
-//   };
-
-//   // Function to check if license is active
-//   const isLicenseActive = (license) => {
-//     return license.is_active !== false && !isLicenseExpired(license.end_date);
-//   };
-
-//   // Format date for display
-//   const formatDate = (dateString) => {
-//     return new Date(dateString).toLocaleDateString();
-//   };
-
-//   // Format address for display
-//   const formatAddress = (address) => {
-//     if (!address) return 'Unknown';
-//     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
-//   };
-
-//   if (isAuthenticated && !isWalletConnected) {
-//     return (
-//       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-//         <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg p-8">
-//           <h2 className="text-2xl font-bold text-gray-900 mb-4">
-//             Authentication Required
-//           </h2>
-//           <p className="text-gray-600 mb-6">
-//             Please connect your wallet to view your licenses.
-//           </p>
-//         </div>
-//       </div>
-//     );
-//   }
-
-//   if (isLoading) {
-//     return (
-//       <div className="flex justify-center items-center py-12">
-//         <LoadingSpinner size="medium" text="Loading licenses..." />
-//       </div>
-//     );
-//   }
-
-//   return (
-//     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-//       {/* Header */}
-//       <div className="mb-6">
-//         <div className="flex flex-col md:flex-row md:items-center justify-between">
-//           <div>
-//             <h1 className="text-2xl font-bold text-gray-900">License Management</h1>
-//             <p className="mt-1 text-sm text-gray-500">
-//               Manage your artwork licenses and usage rights
-//             </p>
-//           </div>
-//           <div className="mt-4 md:mt-0">
-//             <button
-//               onClick={handleRefresh}
-//               disabled={isRefreshing}
-//               className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm bg-white text-gray-700 hover:bg-gray-50"
-//               title="Refresh Licenses"
-//             >
-//               <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-//               Refresh
-//             </button>
-//           </div>
-//         </div>
-//       </div>
-
-//       {/* View Toggle */}
-//       <div className="mb-6">
-//         <div className="flex border-b border-gray-200">
-//           <button
-//             className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors ${
-//               viewType === "licensee"
-//                 ? "border-purple-600 text-purple-600"
-//                 : "border-transparent text-gray-500 hover:text-gray-700"
-//             }`}
-//             onClick={() => setViewType("licensee")}
-//           >
-//             Licenses I Hold ({viewType === "licensee" ? filteredLicenses.length : "..."})
-//           </button>
-//           <button
-//             className={`py-3 px-6 font-medium text-sm border-b-2 transition-colors ${
-//               viewType === "licensor"
-//                 ? "border-purple-600 text-purple-600"
-//                 : "border-transparent text-gray-500 hover:text-gray-700"
-//             }`}
-//             onClick={() => setViewType("licensor")}
-//           >
-//             Licenses I Granted ({viewType === "licensor" ? filteredLicenses.length : "..."})
-//           </button>
-//         </div>
-//       </div>
-
-//       {/* Filters and Search */}
-//       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-//         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-//           <div className="md:col-span-2">
-//             <div className="relative">
-//               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-//               <input
-//                 type="text"
-//                 placeholder="Search by artwork, token ID, or address..."
-//                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-//                 value={searchTerm}
-//                 onChange={(e) => setSearchTerm(e.target.value)}
-//               />
-//             </div>
-//           </div>
-          
-//           <div>
-//             <select
-//               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-//               value={statusFilter}
-//               onChange={(e) => setStatusFilter(e.target.value)}
-//             >
-//               <option value="all">All Statuses</option>
-//               <option value="active">Active</option>
-//               <option value="expired">Expired</option>
-//               <option value="revoked">Revoked</option>
-//             </select>
-//           </div>
-          
-//           <div>
-//             <select
-//               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
-//               value={typeFilter}
-//               onChange={(e) => setTypeFilter(e.target.value)}
-//             >
-//               <option value="all">All Types</option>
-//               <option value="PERSONAL">Personal</option>
-//               <option value="COMMERCIAL">Commercial</option>
-//               <option value="EXCLUSIVE">Exclusive</option>
-//             </select>
-//           </div>
-//         </div>
-//       </div>
-
-//       {/* Licenses Table */}
-//       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-//         {filteredLicenses.length === 0 ? (
-//           <div className="text-center py-12">
-//             <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-//             <p className="text-gray-500 mb-2">
-//               {licenses.length === 0 
-//                 ? `No licenses found as ${viewType}` 
-//                 : "No licenses match your filters"}
-//             </p>
-//             <p className="text-gray-400 text-sm">
-//               {licenses.length === 0 
-//                 ? (viewType === "licensee" 
-//                    ? "You haven't purchased any licenses yet" 
-//                    : "You haven't granted any licenses yet")
-//                 : "Try adjusting your search or filters"}
-//             </p>
-//           </div>
-//         ) : (
-//           <div className="overflow-x-auto">
-//             <table className="min-w-full divide-y divide-gray-200">
-//               <thead className="bg-gray-50">
-//                 <tr>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     License ID
-//                   </th>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     Artwork
-//                   </th>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     {viewType === "licensee" ? "Licensor" : "Licensee"}
-//                   </th>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     Type
-//                   </th>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     Issued
-//                   </th>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     Expires
-//                   </th>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     Status
-//                   </th>
-//                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-//                     Actions
-//                   </th>
-//                 </tr>
-//               </thead>
-//               <tbody className="bg-white divide-y divide-gray-200">
-//                 {filteredLicenses.map((license) => {
-//                   const licenseId = license.license_id || license.id;
-//                   const tokenId = license.token_id;
-//                   const licenseeAddress = license.licensee_address;
-//                   const licensorAddress = license.licensor_address;
-//                   const artworkTitle = license.artwork?.title || `Token #${tokenId}`;
-//                   const isActive = isLicenseActive(license);
-//                   const isExpired = isLicenseExpired(license.end_date);
-//                   const isRevoked = license.is_active === false;
-                  
-//                   let status = "active";
-//                   let statusClass = "bg-green-100 text-green-800";
-                  
-//                   if (isRevoked) {
-//                     status = "revoked";
-//                     statusClass = "bg-red-100 text-red-800";
-//                   } else if (isExpired) {
-//                     status = "expired";
-//                     statusClass = "bg-yellow-100 text-yellow-800";
-//                   }
-                  
-//                   return (
-//                     <tr key={licenseId} className="hover:bg-gray-50">
-//                       <td className="px-6 py-4 whitespace-nowrap">
-//                         <div className="text-sm font-mono text-gray-900">
-//                           #{licenseId}
-//                         </div>
-//                       </td>
-//                       <td className="px-6 py-4 whitespace-nowrap">
-//                         <div className="flex items-center">
-//                           <div className="flex-shrink-0 h-10 w-10 bg-purple-100 rounded-lg flex items-center justify-center">
-//                             <span className="text-purple-800 font-medium text-xs">
-//                               #{tokenId}
-//                             </span>
-//                           </div>
-//                           <div className="ml-4">
-//                             <div className="text-sm font-medium text-gray-900">
-//                               {artworkTitle}
-//                             </div>
-//                           </div>
-//                         </div>
-//                       </td>
-//                       <td className="px-6 py-4 whitespace-nowrap">
-//                         <div className="text-sm text-gray-900 font-mono">
-//                           {formatAddress(viewType === "licensee" ? licensorAddress : licenseeAddress)}
-//                         </div>
-//                       </td>
-//                       <td className="px-6 py-4 whitespace-nowrap">
-//                         <span className={`px-2 py-1 text-xs rounded-full ${
-//                           license.license_type === "PERSONAL"
-//                             ? "bg-blue-100 text-blue-800"
-//                             : license.license_type === "COMMERCIAL"
-//                             ? "bg-purple-100 text-purple-800"
-//                             : "bg-green-100 text-green-800"
-//                         }`}>
-//                           {license.license_type}
-//                         </span>
-//                       </td>
-//                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-//                         {license.start_date ? formatDate(license.start_date) : 'N/A'}
-//                       </td>
-//                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-//                         {license.end_date ? formatDate(license.end_date) : 'N/A'}
-//                       </td>
-//                       <td className="px-6 py-4 whitespace-nowrap">
-//                         <span className={`px-2 py-1 text-xs rounded-full ${statusClass}`}>
-//                           {status.charAt(0).toUpperCase() + status.slice(1)}
-//                         </span>
-//                       </td>
-//                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-//                         <div className="flex space-x-2">
-//                           {/* View Details */}
-//                           <button
-//                             onClick={() => handleViewLicense(license)}
-//                             className="text-blue-600 hover:text-blue-900"
-//                             title="View License Details"
-//                           >
-//                             <Eye className="w-4 h-4" />
-//                           </button>
-                          
-//                           {/* Download Document */}
-//                           <button
-//                             onClick={() => handleDownloadLicense(licenseId)}
-//                             className="text-green-600 hover:text-green-900"
-//                             title="Download License Document"
-//                           >
-//                             <Download className="w-4 h-4" />
-//                           </button>
-                          
-//                           {/* Revoke License (only for licensor view and active licenses) */}
-//                           {viewType === "licensor" && isActive && (
-//                             <button
-//                               onClick={() => handleRevokeLicense(licenseId)}
-//                               disabled={!isCorrectNetwork}
-//                               className={`${
-//                                 !isCorrectNetwork
-//                                   ? "text-gray-400 cursor-not-allowed"
-//                                   : "text-red-600 hover:text-red-900"
-//                               }`}
-//                               title={isCorrectNetwork ? "Revoke License" : "Switch to Sepolia testnet"}
-//                             >
-//                               <XCircle className="w-4 h-4" />
-//                             </button>
-//                           )}
-                          
-//                           {/* Status Icons */}
-//                           {isActive && (
-//                             <span className="text-green-600" title="License is active">
-//                               <CheckCircle className="w-4 h-4" />
-//                             </span>
-//                           )}
-                          
-//                           {isExpired && (
-//                             <span className="text-gray-400" title="License expired">
-//                               <Clock className="w-4 h-4" />
-//                             </span>
-//                           )}
-//                         </div>
-//                       </td>
-//                     </tr>
-//                   );
-//                 })}
-//               </tbody>
-//             </table>
-//           </div>
-//         )}
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default Licenses;
-
-
 import React, { useState, useEffect } from "react";
 import { 
   Shield, 
@@ -538,17 +11,20 @@ import {
   AlertTriangle,
   Info,
   Clock,
-  Calendar
+  Calendar,
+  CreditCard,
+  Wallet
 } from "lucide-react";
 import { useWeb3 } from "../../../context/Web3Context";
 import { useAuth } from "../../../context/AuthContext";
 import { licensesAPI } from "../../../services/api";
+import { UserIdentifier, CurrencyConverter } from "../../../utils/currencyUtils";
 import LoadingSpinner from "../../../components/common/LoadingSpinner";
 import toast from "react-hot-toast";
 
 const Licenses = () => {
   const { account, isCorrectNetwork } = useWeb3();
-  const { isAuthenticated, isWalletConnected } = useAuth();
+  const { isAuthenticated, isWalletConnected, user } = useAuth();
 
   const [licenses, setLicenses] = useState([]);
   const [filteredLicenses, setFilteredLicenses] = useState([]);
@@ -557,8 +33,12 @@ const Licenses = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [viewType, setViewType] = useState("licensee"); // "licensee" or "licensor"
+  const [viewType, setViewType] = useState("licensee");
   const [error, setError] = useState(null);
+  const [paymentMethodFilter, setPaymentMethodFilter] = useState("all");
+
+  // Get user identifier for API calls
+  const userIdentifier = UserIdentifier.getUserIdentifier(user);
 
   // Add this function to calculate time remaining
   const calculateTimeRemaining = (endDate) => {
@@ -579,15 +59,15 @@ const Licenses = () => {
 
   // Fetch licenses data
   const fetchLicenses = async () => {
-    if (!isAuthenticated || !account) return;
+    if (!isAuthenticated || !userIdentifier) return;
     
     setIsRefreshing(true);
     setError(null);
     
     try {
-      console.log(`Fetching licenses for ${account} as ${viewType}`);
+      console.log(`Fetching licenses for ${userIdentifier} as ${viewType}`);
       
-      const response = await licensesAPI.getByUser(account, { 
+      const response = await licensesAPI.getByUser(userIdentifier, { 
         as_licensee: viewType === "licensee",
         page: 1,
         size: 100
@@ -659,12 +139,12 @@ const Licenses = () => {
   };
 
   useEffect(() => {
-    if (isAuthenticated && account) {
+    if (isAuthenticated && userIdentifier) {
       fetchLicenses();
     } else {
       setIsLoading(false);
     }
-  }, [isAuthenticated, account, viewType]);
+  }, [isAuthenticated, userIdentifier, viewType]);
 
   // Filter licenses based on search and filters
   useEffect(() => {
@@ -712,9 +192,14 @@ const Licenses = () => {
     if (typeFilter !== "all") {
       result = result.filter(license => license.license_type === typeFilter);
     }
+
+    // Apply payment method filter
+    if (paymentMethodFilter !== "all") {
+      result = result.filter(license => license.payment_method === paymentMethodFilter);
+    }
     
     setFilteredLicenses(result);
-  }, [searchTerm, statusFilter, typeFilter, licenses]);
+  }, [searchTerm, statusFilter, typeFilter, paymentMethodFilter, licenses]);
 
   // Function to refresh licenses
   const handleRefresh = () => {
@@ -724,7 +209,7 @@ const Licenses = () => {
 
   // Function to revoke license (only for licensor view)
   const handleRevokeLicense = async (licenseId) => {
-    if (!isCorrectNetwork) {
+    if (!isCorrectNetwork && UserIdentifier.isCryptoUser(user)) {
       toast.error("Please switch to Sepolia testnet first");
       return;
     }
@@ -769,6 +254,7 @@ const Licenses = () => {
       `License #${licenseId}\n` +
       `Artwork: Token #${license.token_id}\n` +
       `Type: ${license.license_type}\n` +
+      `Payment: ${license.payment_method || 'crypto'}\n` +
       `Duration: ${duration} days\n` +
       `Status: ${license.is_active ? 'Active' : 'Inactive'}\n` +
       (timeRemaining && !timeRemaining.expired 
@@ -809,6 +295,18 @@ const Licenses = () => {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
 
+  // Format amount with currency
+  const formatAmount = (license) => {
+    const amount = license.total_amount_eth || license.fee_paid;
+    if (!amount) return 'N/A';
+    
+    if (license.payment_method === 'paypal') {
+      const usdAmount = CurrencyConverter.ethToUsd(amount);
+      return CurrencyConverter.formatUsd(usdAmount);
+    }
+    return CurrencyConverter.formatEth(amount);
+  };
+
   // Get license type display info
   const getLicenseTypeDisplay = (type) => {
     const typeInfo = {
@@ -835,13 +333,22 @@ const Licenses = () => {
     }
   };
 
-  if (isAuthenticated && !isWalletConnected) {
+  // Get payment method display
+  const getPaymentMethodDisplay = (method) => {
+    const methodInfo = {
+      "crypto": { label: "Crypto", icon: Wallet, color: "bg-blue-100 text-blue-800" },
+      "paypal": { label: "PayPal", icon: CreditCard, color: "bg-yellow-100 text-yellow-800" }
+    };
+    return methodInfo[method] || { label: method, icon: FileText, color: "bg-gray-100 text-gray-800" };
+  };
+
+  if (isAuthenticated && UserIdentifier.isCryptoUser(user) && !isWalletConnected) {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center bg-yellow-50 border border-yellow-200 rounded-lg p-8">
           <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-4">
-            Authentication Required
+            Wallet Connection Required
           </h2>
           <p className="text-gray-600 mb-6">
             Please connect your wallet to manage your licenses.
@@ -868,6 +375,9 @@ const Licenses = () => {
             <h1 className="text-2xl font-bold text-gray-900">License Management</h1>
             <p className="mt-1 text-sm text-gray-500">
               Manage your artwork licenses and usage rights
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              User: {userIdentifier} ({UserIdentifier.isPayPalUser(user) ? 'PayPal' : 'Crypto'})
             </p>
           </div>
           <div className="mt-4 md:mt-0">
@@ -930,7 +440,7 @@ const Licenses = () => {
 
       {/* Filters and Search */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="md:col-span-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -967,6 +477,18 @@ const Licenses = () => {
               <option value="LINK_ONLY">Link Only</option>
               <option value="ACCESS_WITH_WM">With Watermark</option>
               <option value="FULL_ACCESS">Full Access</option>
+            </select>
+          </div>
+
+          <div>
+            <select
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+              value={paymentMethodFilter}
+              onChange={(e) => setPaymentMethodFilter(e.target.value)}
+            >
+              <option value="all">All Payments</option>
+              <option value="crypto">Crypto</option>
+              <option value="paypal">PayPal</option>
             </select>
           </div>
         </div>
@@ -1018,6 +540,9 @@ const Licenses = () => {
                     Type
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Payment
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Purchased
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1043,6 +568,7 @@ const Licenses = () => {
                   const artworkTitle = license.artwork?.title || `Token #${tokenId}`;
                   const typeDisplay = getLicenseTypeDisplay(license.license_type);
                   const statusDisplay = getStatusDisplay(license);
+                  const paymentDisplay = getPaymentMethodDisplay(license.payment_method || 'crypto');
                   const timeRemaining = calculateTimeRemaining(license.end_date);
                   const duration = license.duration_days || 30;
                   
@@ -1080,6 +606,12 @@ const Licenses = () => {
                           {typeDisplay.label}
                         </span>
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 text-xs rounded-full flex items-center space-x-1 ${paymentDisplay.color}`}>
+                          <paymentDisplay.icon className="w-3 h-3" />
+                          <span>{paymentDisplay.label}</span>
+                        </span>
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {license.purchase_time ? formatDate(license.purchase_time) : 
                          license.created_at ? formatDate(license.created_at) : 'N/A'}
@@ -1103,12 +635,7 @@ const Licenses = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {license.total_amount_eth ? 
-                          `${parseFloat(license.total_amount_eth).toFixed(6)} ETH` : 
-                          license.fee_paid ? 
-                            `${license.fee_paid} ETH` : 
-                            'N/A'
-                        }
+                        {formatAmount(license)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 text-xs rounded-full ${statusDisplay.color} flex items-center space-x-1`}>
@@ -1127,26 +654,28 @@ const Licenses = () => {
                             <Eye className="w-4 h-4" />
                           </button>
                           
-                          {/* Get Blockchain Info */}
-                          <button
-                            onClick={() => handleGetBlockchainInfo(licenseId)}
-                            className="text-green-600 hover:text-green-900"
-                            title="Get Blockchain Info"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                          </button>
+                          {/* Get Blockchain Info (only for crypto licenses) */}
+                          {(license.payment_method === 'crypto' || !license.payment_method) && (
+                            <button
+                              onClick={() => handleGetBlockchainInfo(licenseId)}
+                              className="text-green-600 hover:text-green-900"
+                              title="Get Blockchain Info"
+                            >
+                              <ExternalLink className="w-4 h-4" />
+                            </button>
+                          )}
                           
                           {/* Revoke License (only for licensor view and active licenses) */}
                           {viewType === "licensor" && statusDisplay.label === "Active" && (
                             <button
                               onClick={() => handleRevokeLicense(licenseId)}
-                              disabled={!isCorrectNetwork}
+                              disabled={!isCorrectNetwork && UserIdentifier.isCryptoUser(user)}
                               className={`${
-                                !isCorrectNetwork
+                                (!isCorrectNetwork && UserIdentifier.isCryptoUser(user))
                                   ? "text-gray-400 cursor-not-allowed"
                                   : "text-red-600 hover:text-red-900"
                               }`}
-                              title={isCorrectNetwork ? "Revoke License" : "Switch to Sepolia testnet"}
+                              title={(!isCorrectNetwork && UserIdentifier.isCryptoUser(user)) ? "Switch to Sepolia testnet" : "Revoke License"}
                             >
                               <XCircle className="w-4 h-4" />
                             </button>
@@ -1181,16 +710,18 @@ const Licenses = () => {
           <div>
             <h4 className="text-lg font-semibold text-blue-900 mb-2">License System</h4>
             <p className="text-blue-800 mb-2">
-              License system with fixed platform fees and 30-day duration.
+              License system with flexible payment options and 30-day duration.
             </p>
             <ul className="text-sm text-blue-700 space-y-1">
-              <li>• <strong>Link Only:</strong> 0.01196 ETH (Fixed platform fee)</li>
-              <li>• <strong>Access with Watermark:</strong> 0.02392 ETH (Fixed platform fee)</li>
-              <li>• <strong>Full Access:</strong> 0.03588 ETH (Fixed platform fee)</li>
+              <li>• <strong>Crypto Payments:</strong> Direct blockchain transactions with MetaMask</li>
+              <li>• <strong>PayPal Payments:</strong> Traditional payment processing</li>
+              <li>• <strong>Link Only:</strong> Basic access to artwork link</li>
+              <li>• <strong>Access with Watermark:</strong> Full access with watermark protection</li>
+              <li>• <strong>Full Access:</strong> Complete access without restrictions</li>
               <li>• All licenses are valid for 30 days from purchase</li>
               <li>• Licenses expire automatically after duration period</li>
               <li>• Artwork owners can manually revoke licenses anytime</li>
-              <li>• License data is stored permanently on the blockchain</li>
+              <li>• Crypto license data is stored permanently on the blockchain</li>
             </ul>
           </div>
         </div>

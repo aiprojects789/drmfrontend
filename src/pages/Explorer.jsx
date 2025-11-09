@@ -17,7 +17,157 @@ import {
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import IPFSImage from "../components/common/IPFSImage";
 import toast from "react-hot-toast";
+import { CurrencyConverter } from "../utils/currencyUtils"; // Moved this import up
 
+// ArtworkCard component definition - moved before Explorer component
+const ArtworkCard = ({ artwork, currentAccount, isRecommended }) => {
+  const isOwner =
+    currentAccount &&
+    artwork.owner_address &&
+    currentAccount.toLowerCase() === artwork.owner_address.toLowerCase();
+
+  const getImageUrl = () => {
+    if (artwork.image_url) return artwork.image_url;
+    if (artwork.metadata_uri && artwork.metadata_uri.includes("ipfs://")) {
+      return artwork.metadata_uri;
+    }
+    return null;
+  };
+
+  // Format price display with dual currency
+  const formatArtworkPrice = (artwork) => {
+    if (!artwork.price) return null;
+    
+    const ethPrice = artwork.price;
+    const usdPrice = CurrencyConverter.ethToUsd(ethPrice);
+    
+    return (
+      <div className="text-center">
+        <p className="text-xs text-gray-500">Price</p>
+        <p className="text-sm font-semibold text-gray-900">
+          {CurrencyConverter.formatEth(ethPrice)}
+        </p>
+        <p className="text-xs text-gray-400">
+          ≈ {CurrencyConverter.formatUsd(usdPrice)}
+        </p>
+      </div>
+    );
+  };
+
+  const imageUrl = getImageUrl();
+
+  return (
+    <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 hover:shadow-xl transition-all relative">
+      {/* Recommended Badge */}
+      {isRecommended && (
+        <div className="absolute top-3 right-3 z-20">
+          <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center shadow-lg border-2 border-white">
+            <Sparkles className="w-3.5 h-3.5 mr-1.5 animate-pulse" />
+            FOR YOU
+          </div>
+        </div>
+      )}
+      
+      <div className="bg-gray-100 h-48 flex items-center justify-center">
+        {imageUrl ? (
+          <IPFSImage
+            ipfsUri={imageUrl}
+            tokenId={artwork.token_id}
+            alt={artwork.title || `Artwork ${artwork.token_id}`}
+            className="w-full h-full object-cover"
+            showFallbackInfo={true}
+          />
+        ) : (
+          <div className="text-center">
+            <Palette className="w-16 h-16 text-gray-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-500">Artwork #{artwork.token_id}</p>
+            <p className="text-xs text-gray-400">{artwork.title}</p>
+          </div>
+        )}
+      </div>
+      <div className="p-6">
+        <div className="flex justify-between items-start mb-2">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {artwork.title || `Artwork #${artwork.token_id}`}
+          </h3>
+          <span
+            className={`px-2 py-1 text-xs rounded-full ${
+              artwork.is_licensed
+                ? "bg-green-100 text-green-800"
+                : "bg-gray-100 text-gray-800"
+            }`}
+          >
+            {artwork.is_licensed ? "Licensed" : "Available"}
+          </span>
+        </div>
+        <p className="text-sm text-gray-500 mb-4 line-clamp-2">
+          {artwork.description || "No description available"}
+        </p>
+        
+        {/* Creator, Price, and Royalty in one line */}
+        <div className="flex justify-between items-center mb-4">
+          <div className="text-center flex-1">
+            <p className="text-xs text-gray-500">Creator</p>
+            <p className="text-sm font-mono">
+              {artwork.creator_address?.substring(0, 6)}...
+              {artwork.creator_address?.substring(38)}
+            </p>
+          </div>
+          
+          {/* Price in the middle */}
+          {artwork.price && (
+            <div className="text-center flex-1 mx-6">
+              {formatArtworkPrice(artwork)}
+            </div>
+          )}
+          
+          <div className="text-center flex-1">
+            <p className="text-xs text-gray-500">Royalty</p>
+            <p className="text-sm font-semibold">
+              {artwork.royalty_percentage
+                ? `${(artwork.royalty_percentage / 100).toFixed(2)}%`
+                : "N/A"}
+            </p>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2">
+          <Link
+            to={`/artwork/${artwork.token_id}`}
+            className="flex-1 inline-flex items-center justify-center text-sm font-medium text-purple-600 hover:text-purple-800 border border-purple-200 rounded-lg px-3 py-2 hover:bg-purple-50 transition-colors"
+          >
+            View details <ArrowRight className="w-4 h-4 ml-1" />
+          </Link>
+
+          {!isOwner && (
+            <>
+              <Link
+                to={`/sale/${artwork.token_id}`}
+                className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                title="Purchase this artwork"
+              >
+                <ShoppingCart className="w-4 h-4 mr-1" />
+                Buy
+              </Link>
+
+              <Link
+                to={`/license/${artwork.token_id}`}
+                className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
+                title="Purchase a license for this artwork"
+              >
+                <FileText className="w-4 h-4 mr-1" />
+                License
+              </Link>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Main Explorer component
 const Explorer = () => {
   const { account, isCorrectNetwork } = useWeb3();
   const { isAuthenticated, user } = useAuth();
@@ -457,7 +607,7 @@ const Explorer = () => {
           className="absolute inset-0 bg-cover bg-center opacity-20"
           style={{
             backgroundImage:
-              "url('https://images.pexels.com/photos/373965/pexels-photo-373965.jpeg?auto=compress&cs=tinysrgb&w=1600')",
+              "url('https://images.pexels.com/photos-373965/pexels-photo-373965.jpeg?auto=compress&cs=tinysrgb&w=1600')",
           }}
         ></div>
         <div className="relative max-w-4xl mx-auto py-20 px-6 text-center">
@@ -590,123 +740,6 @@ const Explorer = () => {
             ))}
           </div>
         )}
-      </div>
-    </div>
-  );
-};
-
-const ArtworkCard = ({ artwork, currentAccount, isRecommended }) => {
-  const isOwner =
-    currentAccount &&
-    artwork.owner_address &&
-    currentAccount.toLowerCase() === artwork.owner_address.toLowerCase();
-
-  const getImageUrl = () => {
-    if (artwork.image_url) return artwork.image_url;
-    if (artwork.metadata_uri && artwork.metadata_uri.includes("ipfs://")) {
-      return artwork.metadata_uri;
-    }
-    return null;
-  };
-
-  const imageUrl = getImageUrl();
-
-  return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-200 hover:shadow-xl transition-all relative">
-      {/* Recommended Badge */}
-      {isRecommended && (
-        <div className="absolute top-3 right-3 z-20">
-          <div className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-3 py-1.5 rounded-full text-xs font-bold flex items-center shadow-lg border-2 border-white">
-            <Sparkles className="w-3.5 h-3.5 mr-1.5 animate-pulse" />
-            FOR YOU
-          </div>
-        </div>
-      )}
-      
-      <div className="bg-gray-100 h-48 flex items-center justify-center">
-        {imageUrl ? (
-          <IPFSImage
-            ipfsUri={imageUrl}
-            tokenId={artwork.token_id}
-            alt={artwork.title || `Artwork ${artwork.token_id}`}
-            className="w-full h-full object-cover"
-            showFallbackInfo={true}
-          />
-        ) : (
-          <div className="text-center">
-            <Palette className="w-16 h-16 text-gray-400 mx-auto mb-2" />
-            <p className="text-sm text-gray-500">Artwork #{artwork.token_id}</p>
-            <p className="text-xs text-gray-400">{artwork.title}</p>
-          </div>
-        )}
-      </div>
-      <div className="p-6">
-        <div className="flex justify-between items-start mb-2">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {artwork.title || `Artwork #${artwork.token_id}`}
-          </h3>
-          <span
-            className={`px-2 py-1 text-xs rounded-full ${
-              artwork.is_licensed
-                ? "bg-green-100 text-green-800"
-                : "bg-gray-100 text-gray-800"
-            }`}
-          >
-            {artwork.is_licensed ? "Licensed" : "Available"}
-          </span>
-        </div>
-        <p className="text-sm text-gray-500 mb-4 line-clamp-2">
-          {artwork.description || "No description available"}
-        </p>
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <p className="text-xs text-gray-500">Creator</p>
-            <p className="text-sm font-mono">
-              {artwork.creator_address?.substring(0, 6)}...
-              {artwork.creator_address?.substring(38)}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-gray-500">Royalty</p>
-            <p className="text-sm font-semibold">
-              {artwork.royalty_percentage
-                ? `${(artwork.royalty_percentage / 100).toFixed(2)}%`
-                : "N/A"}
-            </p>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex gap-2">
-          <Link
-            to={`/artwork/${artwork.token_id}`}
-            className="flex-1 inline-flex items-center justify-center text-sm font-medium text-purple-600 hover:text-purple-800 border border-purple-200 rounded-lg px-3 py-2 hover:bg-purple-50 transition-colors"
-          >
-            View details <ArrowRight className="w-4 h-4 ml-1" />
-          </Link>
-
-          {!isOwner && (
-            <>
-              <Link
-                to={`/sale/${artwork.token_id}`}
-                className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
-                title="Purchase this artwork"
-              >
-                <ShoppingCart className="w-4 h-4 mr-1" />
-                Buy
-              </Link>
-
-              <Link
-                to={`/license/${artwork.token_id}`}
-                className="inline-flex items-center justify-center px-3 py-2 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors"
-                title="Purchase a license for this artwork"
-              >
-                <FileText className="w-4 h-4 mr-1" />
-                License
-              </Link>
-            </>
-          )}
-        </div>
       </div>
     </div>
   );

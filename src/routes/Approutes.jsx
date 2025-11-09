@@ -1,7 +1,7 @@
 import React from 'react'
 import Navbar from '../components/Navbar'
 import Auth from '../pages/Auth'
-import Footer from '../components/Footer'
+import PayPalCallback from '../components/PayPalCallback'
 import { AuthProvider } from '../context/AuthContext'
 import { Web3Provider } from '../context/Web3Context'
 import { Routes, Route } from 'react-router-dom'
@@ -24,6 +24,7 @@ import ControlArtworks from '../pages/dashboard/AdminDash/ControlArtworks'
 import UsersManagement from '../pages/dashboard/AdminDash/UserManagement'
 import AdminManagement from '../pages/dashboard/AdminDash/AdminManagement'
 import LicensesPage from '../pages/LicensesPage';
+import PayPalOnboardSuccess from '../pages/PaypalOnboardSuccess'
 import ScrollRestore from '../components/ScrollRestore'
 import ProtectedRoute from './ProtectedRoutes'
 import SalePage from '../pages/SalePage'
@@ -48,6 +49,8 @@ const AppRoutes = () => {
                     <Route path="license/:tokenId" element={<LicensePage />} />
                     <Route path="artwork/:tokenId" element={<ArtworkDetail />} />
                     <Route path="/licenses" element={<LicensesPage />} />
+                    <Route path="/payment/callback" element={<PayPalCallback />} />
+                    <Route path="/onboard-success" element={<PayPalOnboardSuccess />} />
 
                     {/* User Dashboard routes with MainLayout */}
                     <Route 

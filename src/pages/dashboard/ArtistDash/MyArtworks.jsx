@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../../context/AuthContext';
 import { artworksAPI } from '../../../services/api';
 import { Palette, ArrowRight } from 'lucide-react';
+import { UserIdentifier, CurrencyConverter } from '../../../utils/currencyUtils';
 import LoadingSpinner from '../../../components/common/LoadingSpinner';
 import toast from 'react-hot-toast';
 import IPFSImage from '../../../components/common/IPFSImage';
@@ -13,6 +14,9 @@ const MyArtworks = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Get user identifier for API calls
+  const userIdentifier = UserIdentifier.getUserIdentifier(user);
+
   // Fetch user artworks
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -22,18 +26,14 @@ const MyArtworks = () => {
       setError(null);
 
       try {
-        console.log('🔄 Fetching artworks for user');
+        console.log('🔄 Fetching artworks for user:', userIdentifier);
         
-        // FIX: Use wallet_address instead of user.id
-        const walletAddress = user?.wallet_address;
-        if (!walletAddress) {
-          throw new Error('Wallet address not found in user data');
+        if (!userIdentifier) {
+          throw new Error('User identifier not found');
         }
         
-        console.log('📍 Using wallet address:', walletAddress);
-        
-        // Use the artworksAPI from your services
-        const response = await artworksAPI.getByOwner(walletAddress, { page: 1, size: 100 });
+        // Use the artworksAPI with user identifier
+        const response = await artworksAPI.getByOwner(userIdentifier, { page: 1, size: 100 });
         
         // Handle different response structures
         const artworksData = response.data || response.artworks || [];
@@ -52,7 +52,7 @@ const MyArtworks = () => {
     };
 
     fetchArtworks();
-  }, [isAuthenticated, user?.wallet_address]); // FIX: Depend on wallet_address instead of user
+  }, [isAuthenticated, userIdentifier]);
 
   // Helper function to format dates safely
   const formatDate = (dateString) => {
@@ -83,6 +83,17 @@ const MyArtworks = () => {
     }
   };
 
+  // Format price with currency
+  const formatPrice = (artwork) => {
+    if (!artwork.price) return 'Not set';
+    
+    if (artwork.payment_method === 'paypal') {
+      const usdAmount = CurrencyConverter.ethToUsd(artwork.price);
+      return CurrencyConverter.formatUsd(usdAmount);
+    }
+    return CurrencyConverter.formatEth(artwork.price);
+  };
+
   // Redirect if not authenticated
   if (!isAuthenticated) {
     return (
@@ -108,7 +119,7 @@ const MyArtworks = () => {
         </p>
         {/* Debug info - remove in production */}
         <p className="mt-2 text-xs text-gray-400">
-          Wallet: {user?.wallet_address}
+          User: {userIdentifier} ({UserIdentifier.isPayPalUser(user) ? 'PayPal' : 'Crypto'})
         </p>
       </div>
 
@@ -171,15 +182,26 @@ const MyArtworks = () => {
                     <h3 className="text-lg font-semibold text-gray-900">
                       {artwork.title || `Artwork #${artwork.token_id || artwork.id}`}
                     </h3>
-                    <span
-                      className={`px-2 py-1 text-xs rounded-full ${
-                        artwork.is_licensed
-                          ? "bg-green-100 text-green-800"
-                          : "bg-gray-100 text-gray-800"
-                      }`}
-                    >
-                      {artwork.is_licensed ? "Licensed" : "Available"}
-                    </span>
+                    <div className="flex flex-col items-end space-y-1">
+                      <span
+                        className={`px-2 py-1 text-xs rounded-full ${
+                          artwork.is_licensed
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {artwork.is_licensed ? "Licensed" : "Available"}
+                      </span>
+                      <span
+                        className={`px-2 py-1 text-xs rounded-full ${
+                          artwork.payment_method === 'paypal'
+                            ? "bg-yellow-100 text-yellow-800"
+                            : "bg-blue-100 text-blue-800"
+                        }`}
+                      >
+                        {artwork.payment_method === 'paypal' ? 'PayPal' : 'Crypto'}
+                      </span>
+                    </div>
                   </div>
                   
                   <p className="text-sm text-gray-500 mb-4">
@@ -207,10 +229,7 @@ const MyArtworks = () => {
                       <div>
                         <p className="text-xs text-gray-500">Price</p>
                         <p className="text-sm font-semibold">
-                          {typeof artwork.price === 'number' 
-                            ? `${artwork.price.toFixed(2)}ETH`
-                            : artwork.price
-                          }
+                          {formatPrice(artwork)}
                         </p>
                       </div>
                     )}
@@ -222,6 +241,29 @@ const MyArtworks = () => {
                       View details <ArrowRight className="w-4 h-4 ml-1" />
                     </Link>
                   </div>
+
+                  {/* Categories */}
+                  {(artwork.medium_category || artwork.style_category || artwork.subject_category) && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <div className="flex flex-wrap gap-1">
+                        {artwork.medium_category && (
+                          <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 rounded-full">
+                            {artwork.medium_category}
+                          </span>
+                        )}
+                        {artwork.style_category && (
+                          <span className="px-2 py-1 text-xs bg-purple-100 text-purple-800 rounded-full">
+                            {artwork.style_category}
+                          </span>
+                        )}
+                        {artwork.subject_category && (
+                          <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full">
+                            {artwork.subject_category}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );

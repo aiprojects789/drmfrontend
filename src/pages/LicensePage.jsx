@@ -2,13 +2,23 @@ import React, { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useWeb3 } from "../context/Web3Context";
 import { useAuth } from "../context/AuthContext";
-import { Shield, ArrowLeft, AlertTriangle, Info, Calendar, Percent } from "lucide-react";
+import {
+  Shield,
+  ArrowLeft,
+  AlertTriangle,
+  Info,
+  Calendar,
+  Percent,
+  CreditCard,
+  Wallet,
+} from "lucide-react";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { Button } from "@mui/material";
 import { useForm } from "react-hook-form";
 import { yupResolver } from "@hookform/resolvers/yup";
 import * as yup from "yup";
 import { artworksAPI, licensesAPI } from "../services/api";
+import { UserIdentifier, CurrencyConverter } from "../utils/currencyUtils";
 import toast from "react-hot-toast";
 import IPFSImage from "../components/common/IPFSImage";
 
@@ -16,15 +26,18 @@ const schema = yup.object({
   license_type: yup
     .string()
     .required("License type is required")
-    .oneOf(["LINK_ONLY", "ACCESS_WITH_WM", "FULL_ACCESS"], "Invalid license type"),
+    .oneOf(
+      ["LINK_ONLY", "ACCESS_WITH_WM", "FULL_ACCESS"],
+      "Invalid license type"
+    ),
 });
 
 const LicensePage = () => {
   const { tokenId } = useParams();
   const navigate = useNavigate();
-  const { account, isCorrectNetwork, web3, sendTransaction } = useWeb3();
-  const { isAuthenticated } = useAuth();
-  
+  const { account, isCorrectNetwork, sendTransaction } = useWeb3();
+  const { isAuthenticated, user } = useAuth();
+
   const [artwork, setArtwork] = useState(null);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
@@ -33,6 +46,7 @@ const LicensePage = () => {
   const [priceInfo, setPriceInfo] = useState(null);
   const [isOwner, setIsOwner] = useState(false);
   const [licenseConfig, setLicenseConfig] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState("crypto");
 
   const {
     register,
@@ -48,65 +62,78 @@ const LicensePage = () => {
 
   const selectedLicenseType = watch("license_type");
 
+  // Get user identifier
+  const userIdentifier = UserIdentifier.getUserIdentifier(user);
+
   // Fetch artwork data and license prices
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
         // Fetch artwork
-        const artworkResponse = await artworksAPI.getByTokenId(parseInt(tokenId));
-        console.log('Artwork API response:', artworkResponse);
-        
-        if (artworkResponse.data) {
-          setArtwork(artworkResponse.data);
-          
+        const artworkResponse = await artworksAPI.getById(parseInt(tokenId));
+        console.log("Artwork API response:", artworkResponse);
+
+        if (artworkResponse) {
+          setArtwork(artworkResponse);
+
           // Check if current user is the owner
-          if (account && artworkResponse.data.owner_address) {
-            setIsOwner(account.toLowerCase() === artworkResponse.data.owner_address.toLowerCase());
+          if (userIdentifier && artworkResponse.owner_address) {
+            const isCryptoOwner =
+              account &&
+              artworkResponse.owner_address.toLowerCase() ===
+                account.toLowerCase();
+            const isPayPalOwner = userIdentifier === artworkResponse.owner_id;
+            setIsOwner(isCryptoOwner || isPayPalOwner);
           }
 
           // Fetch license prices based on artwork price
-          if (artworkResponse.data.price > 0) {
+          if (artworkResponse.price > 0) {
             try {
-              const pricesResponse = await licensesAPI.getPricesForArtwork(parseInt(tokenId));
+              const pricesResponse = await licensesAPI.getPricesForArtwork(
+                parseInt(tokenId)
+              );
               if (pricesResponse.success) {
                 setPriceInfo(pricesResponse);
                 setLicenseConfig({
                   durationDays: pricesResponse.duration_days,
                   platformFeePercentage: pricesResponse.platform_fee_percentage,
-                  configName: pricesResponse.config_name
+                  configName: pricesResponse.config_name,
                 });
               }
             } catch (priceError) {
-              console.warn("Failed to fetch dynamic prices, using defaults:", priceError);
+              console.warn(
+                "Failed to fetch dynamic prices, using defaults:",
+                priceError
+              );
               // Fallback to default calculation
               setPriceInfo({
                 prices: {
-                  "LINK_ONLY": { 
-                    license_fee_eth: artworkResponse.data.price * 0.2,
-                    platform_fee_eth: artworkResponse.data.price * 0.2 * 0.05,
-                    total_amount_eth: artworkResponse.data.price * 0.2,
+                  LINK_ONLY: {
+                    license_fee_eth: artworkResponse.price * 0.2,
+                    platform_fee_eth: artworkResponse.price * 0.2 * 0.05,
+                    total_amount_eth: artworkResponse.price * 0.2,
                     license_percentage: 20,
-                    duration_days: 30
+                    duration_days: 30,
                   },
-                  "ACCESS_WITH_WM": { 
-                    license_fee_eth: artworkResponse.data.price * 0.7,
-                    platform_fee_eth: artworkResponse.data.price * 0.7 * 0.05,
-                    total_amount_eth: artworkResponse.data.price * 0.7,
+                  ACCESS_WITH_WM: {
+                    license_fee_eth: artworkResponse.price * 0.7,
+                    platform_fee_eth: artworkResponse.price * 0.7 * 0.05,
+                    total_amount_eth: artworkResponse.price * 0.7,
                     license_percentage: 70,
-                    duration_days: 30
+                    duration_days: 30,
                   },
-                  "FULL_ACCESS": { 
-                    license_fee_eth: artworkResponse.data.price * 0.9,
-                    platform_fee_eth: artworkResponse.data.price * 0.9 * 0.05,
-                    total_amount_eth: artworkResponse.data.price * 0.9,
+                  FULL_ACCESS: {
+                    license_fee_eth: artworkResponse.price * 0.9,
+                    platform_fee_eth: artworkResponse.price * 0.9 * 0.05,
+                    total_amount_eth: artworkResponse.price * 0.9,
                     license_percentage: 90,
-                    duration_days: 30
-                  }
+                    duration_days: 30,
+                  },
                 },
                 duration_days: 30,
                 platform_fee_percentage: 5,
-                config_name: "Fallback"
+                config_name: "Fallback",
               });
             }
           }
@@ -114,7 +141,6 @@ const LicensePage = () => {
           setError("Artwork not found");
           return;
         }
-
       } catch (error) {
         console.error("Error fetching data:", error);
         setError("Failed to load artwork or pricing information");
@@ -126,21 +152,27 @@ const LicensePage = () => {
     if (tokenId) {
       fetchData();
     }
-  }, [tokenId, account]);
+  }, [tokenId, account, userIdentifier]);
 
   const handlePurchaseLicense = async (data) => {
-    if (!isAuthenticated || !account) {
-      setError('Please connect your wallet');
+    // For PayPal, authentication is handled differently
+    if (paymentMethod === "crypto" && (!isAuthenticated || !account)) {
+      setError("Please connect your wallet");
       return;
     }
 
-    if (!isCorrectNetwork) {
-      setError('Please switch to Sepolia testnet');
+    if (paymentMethod === "crypto" && !isCorrectNetwork) {
+      setError("Please switch to Sepolia testnet");
       return;
     }
 
     if (isOwner) {
-      setError('You cannot purchase a license for your own artwork');
+      setError("You cannot purchase a license for your own artwork");
+      return;
+    }
+
+    if (!artwork || artwork.price <= 0) {
+      setError("Artwork price is not set or invalid");
       return;
     }
 
@@ -149,8 +181,20 @@ const LicensePage = () => {
     setTransactionHash(null);
 
     try {
-      // Step 1: Prepare license purchase
-      const prepToast = toast.loading("Preparing license purchase...");
+      // Step 1: Check blockchain health first
+      const healthResponse = await licensesAPI.getBlockchainHealth();
+      console.log("Blockchain health:", healthResponse);
+      
+      if (healthResponse.demo_mode) {
+        throw new Error("Blockchain service is in demo mode. Real transactions are disabled.");
+      }
+
+      if (!healthResponse.connected) {
+        throw new Error("Blockchain service is not connected. Please try again later.");
+      }
+
+      // Step 2: Prepare license purchase (get REAL transaction data)
+      const prepToast = toast.loading("Preparing blockchain transaction...");
 
       const licenseResponse = await licensesAPI.purchaseSimple({
         token_id: parseInt(tokenId),
@@ -160,66 +204,110 @@ const LicensePage = () => {
       toast.dismiss(prepToast);
 
       if (!licenseResponse.success) {
-        throw new Error(licenseResponse.detail || "Failed to prepare license purchase");
+        throw new Error(licenseResponse.detail || licenseResponse.error || "Failed to prepare license purchase");
       }
 
       console.log("License response:", licenseResponse);
 
-      // Step 2: Send blockchain transaction
-      const txToast = toast.loading("Sending transaction to blockchain...");
+      // Handle both response formats - with requires_blockchain flag and without
+      const requiresBlockchain = licenseResponse.requires_blockchain || 
+                               (licenseResponse.transaction_data && licenseResponse.mode === "REAL");
 
-      const txData = licenseResponse.transaction_data;
-      const txParams = {
-        to: txData.to,
-        data: txData.data,
-        from: account,
-        value: txData.value,
-        gas: txData.gas,
-      };
+      if (requiresBlockchain && licenseResponse.transaction_data) {
+        const txData = licenseResponse.transaction_data;
+        
+        // Prepare transaction parameters for MetaMask
+        const txParams = {
+          to: txData.to,
+          data: txData.data,
+          from: account,
+          value: txData.value,
+        };
 
-      // Add gas pricing based on transaction type
-      if (txData.maxFeePerGas) {
-        txParams.maxFeePerGas = txData.maxFeePerGas;
-        txParams.maxPriorityFeePerGas = txData.maxPriorityFeePerGas;
-      } else if (txData.gasPrice) {
-        txParams.gasPrice = txData.gasPrice;
+        // Add gas settings - handle both EIP-1559 and legacy gas
+        if (txData.maxFeePerGas && txData.maxPriorityFeePerGas) {
+          txParams.maxFeePerGas = txData.maxFeePerGas;
+          txParams.maxPriorityFeePerGas = txData.maxPriorityFeePerGas;
+        } else if (txData.gasPrice) {
+          txParams.gasPrice = txData.gasPrice;
+        }
+
+        // Add gas limit if provided, otherwise let MetaMask estimate
+        if (txData.gas) {
+          txParams.gasLimit = txData.gas;
+        }
+
+        console.log("Sending REAL transaction to MetaMask:", txParams);
+
+        // ✅ This WILL trigger MetaMask popup
+        const txResponse = await sendTransaction(txParams);
+
+        if (!txResponse || !txResponse.hash) {
+          throw new Error("No transaction hash received from MetaMask");
+        }
+
+        setTransactionHash(txResponse.hash);
+        toast.success("Transaction submitted to blockchain! Waiting for confirmation...");
+        
+        // Step 3: Confirm the transaction with backend
+        const confirmToast = toast.loading("Confirming transaction on blockchain...");
+        
+        try {
+          const confirmResponse = await licensesAPI.confirmPurchase({
+            tx_hash: txResponse.hash,
+            license_id: licenseResponse.license_id
+          });
+
+          toast.dismiss(confirmToast);
+
+          if (confirmResponse.success) {
+            toast.success("✅ License purchased successfully! Transaction confirmed on blockchain.");
+            
+            // Navigate to licenses page
+            setTimeout(() => {
+              navigate("/licenses");
+            }, 3000);
+          } else {
+            throw new Error(confirmResponse.detail || confirmResponse.error || "Failed to confirm transaction on blockchain");
+          }
+        } catch (confirmError) {
+          toast.dismiss(confirmToast);
+          // Even if confirmation fails, the transaction might still succeed on blockchain
+          console.warn("Confirmation failed, but transaction might still succeed:", confirmError);
+          toast.success("✅ Transaction submitted! Please check your licenses page in a few moments.");
+          
+          setTimeout(() => {
+            navigate("/licenses");
+          }, 3000);
+        }
+      } else {
+        // This should not happen in real mode
+        throw new Error("Invalid response: Blockchain transaction required but not provided");
       }
-
-      console.log("Sending transaction:", txParams);
-
-      const txResponse = await sendTransaction(txParams);
-
-      toast.dismiss(txToast);
-
-      if (!txResponse || !txResponse.hash) {
-        throw new Error("No transaction hash received");
-      }
-
-      setTransactionHash(txResponse.hash);
-      toast.success("License purchased successfully! Transaction submitted to blockchain.");
-
-      // Navigate to licenses page after a delay
-      setTimeout(() => {
-        navigate("/licenses");
-      }, 3000);
-
     } catch (err) {
-      console.error('License purchase failed:', err);
+      console.error("License purchase failed:", err);
       toast.dismiss();
-      
+
+      // Handle specific error cases
       if (err.code === 4001) {
-        setError("Transaction cancelled by user");
+        setError("Transaction cancelled by user in MetaMask");
+      } else if (err.code === -32603) {
+        setError("Transaction failed. Please check your gas settings and try again.");
       } else if (err.message?.includes("insufficient funds")) {
         setError("Insufficient funds. Please add ETH to your wallet.");
-      } else if (err.message?.includes("out of gas")) {
-        setError("Transaction requires more gas. Please try again.");
-      } else if (err.message?.includes("rejected")) {
-        setError("Transaction rejected by user.");
-      } else if (err.message) {
-        const errorMsg = err.message.length > 100 ? err.message.substring(0, 100) + "..." : err.message;
-        setError(`License purchase failed: ${errorMsg}`);
+      } else if (err.message?.includes("user rejected") || err.message?.includes("denied")) {
+        setError("Transaction rejected by user in MetaMask.");
+      } else if (err.message?.includes("demo mode")) {
+        setError("Blockchain service is in demo mode. Real transactions are disabled.");
+      } else if (err.message?.includes("not connected")) {
+        setError("Blockchain service is not available. Please try again later.");
       } else {
-        setError("License purchase failed. Please try again.");
+        // Extract clean error message
+        const errorMsg = err.response?.data?.detail || 
+                        err.response?.data?.error || 
+                        err.message || 
+                        "License purchase failed. Please try again.";
+        setError(errorMsg);
       }
     } finally {
       setPurchasing(false);
@@ -227,34 +315,47 @@ const LicensePage = () => {
   };
 
   const formatAddress = (address) => {
-    if (!address) return 'Unknown';
-    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+    if (!address) return "Unknown";
+    return `${address.substring(0, 6)}...${address.substring(
+      address.length - 4
+    )}`;
+  };
+
+  // Format price display
+  const formatPrice = (amount) => {
+    if (!amount) return "N/A";
+
+    if (paymentMethod === "paypal") {
+      const usdAmount = CurrencyConverter.ethToUsd(amount);
+      return CurrencyConverter.formatUsd(usdAmount);
+    }
+    return CurrencyConverter.formatEth(amount);
   };
 
   const getLicenseTypeInfo = (type) => {
     const info = {
-      "LINK_ONLY": {
+      LINK_ONLY: {
         name: "Link Only",
         description: "Basic access to artwork link",
         features: [
           "View artwork through link only",
           "Basic reference rights",
           "Non-commercial use",
-          "Link sharing allowed"
-        ]
+          "Link sharing allowed",
+        ],
       },
-      "ACCESS_WITH_WM": {
-        name: "Access with Watermark", 
+      ACCESS_WITH_WM: {
+        name: "Access with Watermark",
         description: "Full access but with watermark protection",
         features: [
           "Full artwork access",
           "Watermarked version",
           "Commercial use allowed",
           "Attribution required",
-          "Download permissions"
-        ]
+          "Download permissions",
+        ],
       },
-      "FULL_ACCESS": {
+      FULL_ACCESS: {
         name: "Full Access",
         description: "Complete access without restrictions",
         features: [
@@ -262,13 +363,14 @@ const LicensePage = () => {
           "No watermarks",
           "Commercial use rights",
           "Modification rights",
-          "Unrestricted usage"
-        ]
-      }
+          "Unrestricted usage",
+        ],
+      },
     };
     return info[type] || info["LINK_ONLY"];
   };
-    // Calculate expiration date
+
+  // Calculate expiration date
   const calculateExpirationDate = () => {
     if (!licenseConfig) return null;
     const today = new Date();
@@ -291,7 +393,9 @@ const LicensePage = () => {
     return (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center bg-red-50 border border-red-200 rounded-lg p-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Artwork Not Found</h2>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">
+            Artwork Not Found
+          </h2>
           <p className="text-gray-600 mb-4">{error}</p>
           <Link
             to="/explorer"
@@ -317,7 +421,9 @@ const LicensePage = () => {
               <Shield className="w-8 h-8 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Purchase License</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Purchase License
+          </h1>
           <p className="text-lg text-gray-600">Artwork #{tokenId}</p>
         </div>
         <Link
@@ -339,7 +445,8 @@ const LicensePage = () => {
                 You Own This Artwork
               </h3>
               <p className="text-yellow-700">
-                You cannot purchase a license for your own artwork. You already have full rights to use it.
+                You cannot purchase a license for your own artwork. You already
+                have full rights to use it.
               </p>
             </div>
           </div>
@@ -369,28 +476,28 @@ const LicensePage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Artwork Details */}
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
-          {artwork && artwork.image_url ? (
-            <div className="bg-gray-100 h-64 sm:h-80 flex items-center justify-center overflow-hidden">
-              <IPFSImage 
-                src={artwork.image_url} 
-                alt={artwork.title}
+          <div className="bg-gray-100 rounded-lg overflow-hidden aspect-square flex items-center justify-center">
+            {artwork ? (
+              <IPFSImage
+                ipfsUri={artwork.metadata_uri}
+                tokenId={artwork.token_id}
+                alt={artwork.title || `Artwork ${artwork.token_id}`}
                 className="w-full h-full object-cover"
+                showFallbackInfo={true}
               />
-            </div>
-          ) : (
-            <div className="bg-gray-100 h-64 sm:h-80 flex items-center justify-center">
+            ) : (
               <div className="text-center">
                 <Shield className="w-16 h-16 text-gray-400 mx-auto mb-2" />
                 <p className="text-gray-500">Artwork #{tokenId}</p>
               </div>
-            </div>
-          )}
-          
+            )}
+          </div>
+
           <div className="p-6">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">
               {artwork?.title || `Artwork #${tokenId}`}
             </h2>
-            
+
             {artwork?.description && (
               <p className="text-gray-600 mb-4">{artwork.description}</p>
             )}
@@ -402,19 +509,21 @@ const LicensePage = () => {
                   {formatAddress(artwork?.creator_address)}
                 </span>
               </div>
-              
+
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Current Owner</span>
                 <span className="text-sm font-mono text-gray-900">
                   {formatAddress(artwork?.owner_address)}
-                  {isOwner && <span className="ml-2 text-blue-600 text-xs">(You)</span>}
+                  {isOwner && (
+                    <span className="ml-2 text-blue-600 text-xs">(You)</span>
+                  )}
                 </span>
               </div>
-              
+
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Artwork Price</span>
                 <span className="text-sm font-semibold text-gray-900">
-                  {artwork?.price ? `${artwork.price} ETH` : 'Not set'}
+                  {artwork?.price ? formatPrice(artwork.price) : "Not set"}
                 </span>
               </div>
 
@@ -431,37 +540,76 @@ const LicensePage = () => {
                   #{artwork?.token_id}
                 </span>
               </div>
+
+              {artwork?.payment_method && (
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-500">Payment Method</span>
+                  <span
+                    className={`text-sm px-2 py-1 rounded-full ${
+                      artwork.payment_method === "paypal"
+                        ? "bg-yellow-100 text-yellow-800"
+                        : "bg-blue-100 text-blue-800"
+                    }`}
+                  >
+                    {artwork.payment_method === "paypal" ? (
+                      <CreditCard className="w-3 h-3 inline mr-1" />
+                    ) : (
+                      <Wallet className="w-3 h-3 inline mr-1" />
+                    )}
+                    {artwork.payment_method === "paypal" ? "PayPal" : "Crypto"}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* License Purchase Form */}
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-6">License Options</h3>
-          
+          <h3 className="text-xl font-bold text-gray-900 mb-6">
+            License Options
+          </h3>
+
           {!isAuthenticated ? (
             <div className="text-center py-8">
               <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">Wallet Required</h4>
-              <p className="text-gray-600">Please connect your wallet to purchase a license.</p>
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">
+                Authentication Required
+              </h4>
+              <p className="text-gray-600">
+                Please log in to purchase a license.
+              </p>
             </div>
-          ) : !isCorrectNetwork ? (
+          ) : paymentMethod === "crypto" && !isCorrectNetwork ? (
             <div className="text-center py-8">
               <AlertTriangle className="w-12 h-12 text-orange-500 mx-auto mb-4" />
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">Wrong Network</h4>
-              <p className="text-gray-600">Please switch to Sepolia testnet to purchase licenses.</p>
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">
+                Wrong Network
+              </h4>
+              <p className="text-gray-600">
+                Please switch to Sepolia testnet to purchase licenses.
+              </p>
             </div>
           ) : isOwner ? (
             <div className="text-center py-8">
               <Info className="w-12 h-12 text-blue-500 mx-auto mb-4" />
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">You Own This Artwork</h4>
-              <p className="text-gray-600">As the owner, you have full rights to this artwork without needing a license.</p>
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">
+                You Own This Artwork
+              </h4>
+              <p className="text-gray-600">
+                As the owner, you have full rights to this artwork without
+                needing a license.
+              </p>
             </div>
           ) : artwork?.price <= 0 ? (
             <div className="text-center py-8">
               <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-              <h4 className="text-lg font-semibold text-gray-900 mb-2">Price Not Set</h4>
-              <p className="text-gray-600">This artwork does not have a price set. Cannot purchase license.</p>
+              <h4 className="text-lg font-semibold text-gray-900 mb-2">
+                Price Not Set
+              </h4>
+              <p className="text-gray-600">
+                This artwork does not have a price set. Cannot purchase license.
+              </p>
             </div>
           ) : (
             <form onSubmit={handleSubmit(handlePurchaseLicense)}>
@@ -476,19 +624,28 @@ const LicensePage = () => {
                   }`}
                 >
                   <option value="LINK_ONLY">
-                    Link Only ({selectedLicenseType === "LINK_ONLY" && priceInfo?.prices?.LINK_ONLY ? 
-                      `${priceInfo.prices.LINK_ONLY.license_percentage}% of artwork price` : 
-                      "20% of artwork price"})
+                    Link Only (
+                    {selectedLicenseType === "LINK_ONLY" &&
+                    priceInfo?.prices?.LINK_ONLY
+                      ? `${priceInfo.prices.LINK_ONLY.license_percentage}% of artwork price`
+                      : "20% of artwork price"}
+                    )
                   </option>
                   <option value="ACCESS_WITH_WM">
-                    Access with Watermark ({selectedLicenseType === "ACCESS_WITH_WM" && priceInfo?.prices?.ACCESS_WITH_WM ? 
-                      `${priceInfo.prices.ACCESS_WITH_WM.license_percentage}% of artwork price` : 
-                      "70% of artwork price"})
+                    Access with Watermark (
+                    {selectedLicenseType === "ACCESS_WITH_WM" &&
+                    priceInfo?.prices?.ACCESS_WITH_WM
+                      ? `${priceInfo.prices.ACCESS_WITH_WM.license_percentage}% of artwork price`
+                      : "70% of artwork price"}
+                    )
                   </option>
                   <option value="FULL_ACCESS">
-                    Full Access ({selectedLicenseType === "FULL_ACCESS" && priceInfo?.prices?.FULL_ACCESS ? 
-                      `${priceInfo.prices.FULL_ACCESS.license_percentage}% of artwork price` : 
-                      "90% of artwork price"})
+                    Full Access (
+                    {selectedLicenseType === "FULL_ACCESS" &&
+                    priceInfo?.prices?.FULL_ACCESS
+                      ? `${priceInfo.prices.FULL_ACCESS.license_percentage}% of artwork price`
+                      : "90% of artwork price"}
+                    )
                   </option>
                 </select>
                 {errors.license_type && (
@@ -496,6 +653,25 @@ const LicensePage = () => {
                     {errors.license_type.message}
                   </p>
                 )}
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Payment Method
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-800 focus:border-blue-800"
+                >
+                  <option value="crypto">MetaMask (Crypto)</option>
+                  <option value="paypal">PayPal</option>
+                </select>
+                <p className="text-sm text-gray-500 mt-1">
+                  {paymentMethod === "crypto"
+                    ? "Purchase license on blockchain using MetaMask"
+                    : "Purchase license using PayPal (no crypto wallet needed)"}
+                </p>
               </div>
 
               {/* License Type Description */}
@@ -508,12 +684,14 @@ const LicensePage = () => {
                     {getLicenseTypeInfo(selectedLicenseType).description}
                   </p>
                   <ul className="text-blue-600 text-sm space-y-1">
-                    {getLicenseTypeInfo(selectedLicenseType).features.map((feature, index) => (
-                      <li key={index} className="flex items-start">
-                        <span className="mr-2">•</span>
-                        <span>{feature}</span>
-                      </li>
-                    ))}
+                    {getLicenseTypeInfo(selectedLicenseType).features.map(
+                      (feature, index) => (
+                        <li key={index} className="flex items-start">
+                          <span className="mr-2">•</span>
+                          <span>{feature}</span>
+                        </li>
+                      )
+                    )}
                   </ul>
                 </div>
               )}
@@ -523,7 +701,9 @@ const LicensePage = () => {
                 <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                   <div className="flex items-center text-green-800">
                     <Calendar className="w-4 h-4 mr-2" />
-                    <span className="font-medium">License Duration: {licenseConfig.durationDays} days</span>
+                    <span className="font-medium">
+                      License Duration: {licenseConfig.durationDays} days
+                    </span>
                   </div>
                   {expirationDate && (
                     <p className="text-green-700 text-sm mt-1">
@@ -536,11 +716,15 @@ const LicensePage = () => {
               {/* Fee Breakdown */}
               {selectedPriceInfo && (
                 <div className="bg-gray-50 p-4 rounded-lg mb-6">
-                  <h4 className="font-semibold text-gray-900 mb-3">Fee Breakdown</h4>
+                  <h4 className="font-semibold text-gray-900 mb-3">
+                    Fee Breakdown
+                  </h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Artwork Price:</span>
-                      <span className="font-mono font-medium">{artwork?.price} ETH</span>
+                      <span className="font-mono font-medium">
+                        {formatPrice(artwork?.price)}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">License Percentage:</span>
@@ -550,24 +734,28 @@ const LicensePage = () => {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">License Fee:</span>
-                      <span className="font-mono font-medium">{selectedPriceInfo.license_fee_eth.toFixed(6)} ETH</span>
+                      <span className="font-mono font-medium">
+                        {formatPrice(selectedPriceInfo.license_fee_eth)}
+                      </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-gray-600">Platform Fee:</span>
                       <span className="font-mono text-orange-600">
-                        {selectedPriceInfo.platform_fee_eth.toFixed(6)} ETH
+                        {formatPrice(selectedPriceInfo.platform_fee_eth)}
                       </span>
                     </div>
                     <div className="border-t pt-2 mt-2">
                       <div className="flex justify-between font-medium">
                         <span className="text-gray-900">You Pay:</span>
                         <span className="font-mono text-green-600">
-                          {selectedPriceInfo.total_amount_eth.toFixed(6)} ETH
+                          {formatPrice(selectedPriceInfo.total_amount_eth)}
                         </span>
                       </div>
                       <div className="flex justify-between text-xs text-gray-500">
                         <span>Owner Receives:</span>
-                        <span>{selectedPriceInfo.actual_amount_eth.toFixed(6)} ETH</span>
+                        <span>
+                          {formatPrice(selectedPriceInfo.actual_amount_eth)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -598,7 +786,10 @@ const LicensePage = () => {
                   <div className="flex items-center justify-center">
                     <Shield className="w-5 h-5 mr-2" />
                     {selectedPriceInfo ? (
-                      <>Purchase License ({selectedPriceInfo.total_amount_eth.toFixed(6)} ETH)</>
+                      <>
+                        Purchase License (
+                        {formatPrice(selectedPriceInfo.total_amount_eth)})
+                      </>
                     ) : (
                       <>Calculate Price...</>
                     )}
@@ -607,8 +798,14 @@ const LicensePage = () => {
               </Button>
 
               <div className="mt-4 text-xs text-gray-500 text-center">
-                <p>By purchasing a license, you agree to the platform's terms and conditions.</p>
-                <p className="mt-1">License valid for {licenseConfig?.durationDays || 30} days from purchase.</p>
+                <p>
+                  By purchasing a license, you agree to the platform's terms and
+                  conditions.
+                </p>
+                <p className="mt-1">
+                  License valid for {licenseConfig?.durationDays || 30} days
+                  from purchase.
+                </p>
               </div>
             </form>
           )}
@@ -625,35 +822,52 @@ const LicensePage = () => {
                 License Configuration: {licenseConfig.configName}
               </h4>
               <p className="text-blue-800 mb-3">
-                License fees are calculated as a percentage of the artwork price. 
-                Platform fee:  • Duration: {licenseConfig.durationDays} days
+                License fees are calculated as a percentage of the artwork
+                price. Platform fee: • Duration: {licenseConfig.durationDays}{" "}
+                days
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                 <div className="bg-white p-3 rounded-lg border border-blue-200">
                   <h5 className="font-medium text-blue-900 mb-1 flex items-center">
                     <Percent className="w-4 h-4 mr-1" /> Link Only
                   </h5>
-                  <p className="text-blue-700">{priceInfo?.prices?.LINK_ONLY?.license_percentage || 20}% of price</p>
+                  <p className="text-blue-700">
+                    {priceInfo?.prices?.LINK_ONLY?.license_percentage || 20}% of
+                    price
+                  </p>
                   <p className="text-blue-600 font-mono mt-1">
-                    {priceInfo?.prices?.LINK_ONLY?.total_amount_eth?.toFixed(6) || '0.000000'} ETH
+                    {formatPrice(
+                      priceInfo?.prices?.LINK_ONLY?.total_amount_eth || 0
+                    )}
                   </p>
                 </div>
                 <div className="bg-white p-3 rounded-lg border border-blue-200">
                   <h5 className="font-medium text-blue-900 mb-1 flex items-center">
                     <Percent className="w-4 h-4 mr-1" /> Watermark Access
                   </h5>
-                  <p className="text-blue-700">{priceInfo?.prices?.ACCESS_WITH_WM?.license_percentage || 70}% of price</p>
+                  <p className="text-blue-700">
+                    {priceInfo?.prices?.ACCESS_WITH_WM?.license_percentage ||
+                      70}
+                    % of price
+                  </p>
                   <p className="text-blue-600 font-mono mt-1">
-                    {priceInfo?.prices?.ACCESS_WITH_WM?.total_amount_eth?.toFixed(6) || '0.000000'} ETH
+                    {formatPrice(
+                      priceInfo?.prices?.ACCESS_WITH_WM?.total_amount_eth || 0
+                    )}
                   </p>
                 </div>
                 <div className="bg-white p-3 rounded-lg border border-blue-200">
                   <h5 className="font-medium text-blue-900 mb-1 flex items-center">
                     <Percent className="w-4 h-4 mr-1" /> Full Access
                   </h5>
-                  <p className="text-blue-700">{priceInfo?.prices?.FULL_ACCESS?.license_percentage || 90}% of price</p>
+                  <p className="text-blue-700">
+                    {priceInfo?.prices?.FULL_ACCESS?.license_percentage || 90}%
+                    of price
+                  </p>
                   <p className="text-blue-600 font-mono mt-1">
-                    {priceInfo?.prices?.FULL_ACCESS?.total_amount_eth?.toFixed(6) || '0.000000'} ETH
+                    {formatPrice(
+                      priceInfo?.prices?.FULL_ACCESS?.total_amount_eth || 0
+                    )}
                   </p>
                 </div>
               </div>
