@@ -194,18 +194,59 @@ const handleApiError = (error, context = "API call") => {
 };
 
 export const authAPI = {
-  // Login with email/password - handled manually in AuthContext for OAuth2 form data
-  login: (data) =>
-    api
-      .post("/auth/login", data)
-      .then((res) => {
-        if (res.data.access_token)
-          localStorage.setItem("token", res.data.access_token);
-        if (res.data.user)
-          localStorage.setItem("userData", JSON.stringify(res.data.user));
-        return res.data;
-      })
-      .catch((error) => handleApiError(error, "Login")),
+  // ✅ UPDATED: Login with email/password and optional 2FA code
+  login: async (data) => {
+    try {
+      console.log("API: Attempting login");
+      
+      // Prepare login payload
+      const loginPayload = {
+        username: data.email || data.username,
+        password: data.password,
+      };
+      
+      // ✅ NEW: Include OTP code if provided (for 2FA)
+      if (data.otp_code) {
+        loginPayload.otp_code = data.otp_code;
+      }
+      
+      const response = await api.post("/auth/login", loginPayload);
+      
+      // Store token if provided (existing functionality)
+      if (response.data.access_token) {
+        localStorage.setItem("token", response.data.access_token);
+      }
+      
+      // Store user data if provided (existing functionality)
+      if (response.data.user) {
+        localStorage.setItem("userData", JSON.stringify(response.data.user));
+      }
+      
+      return response.data;
+    } catch (error) {
+      // ✅ NEW: Handle 2FA-specific errors
+      if (error.response?.status === 403 && 
+          error.response?.data?.detail === "2FA code required") {
+        // Re-throw with 2FA flag for frontend to handle
+        const err = new Error("2FA code required");
+        err.require2FA = true;
+        err.response = error.response;
+        throw err;
+      }
+      
+      if (error.response?.status === 401 && 
+          error.response?.data?.detail === "Invalid 2FA code") {
+        // Re-throw with 2FA flag for frontend to handle
+        const err = new Error("Invalid 2FA code");
+        err.require2FA = true;
+        err.response = error.response;
+        throw err;
+      }
+      
+      // Existing error handling
+      return handleApiError(error, "Login");
+    }
+  },
 
   // Signup - requires authentication FIRST
   signup: (data) =>
@@ -316,13 +357,193 @@ export const authAPI = {
       .then((res) => res.data)
       .catch((error) => handleApiError(error, "Password reset")),
 
-  // Update password (for logged-in users)
-  updatePassword: (current_password, new_password) =>
-    api
-      .post("/auth/update-password", { current_password, new_password })
-      .then((res) => res.data)
-      .catch((error) => handleApiError(error, "Password update")),
-};
+// Update password (for logged-in users)
+updatePassword: (current_password, new_password) =>
+  api
+    .post("/auth/update-password", { current_password, new_password })
+    .then((res) => res.data)
+    .catch((error) => handleApiError(error, "Password update")),
+
+// ============================================
+// ✅ GOOGLE OAUTH ENDPOINTS
+// ============================================
+
+/**
+ * Initiate Google OAuth login
+ * Returns auth URL to redirect user to Google
+ */
+googleLogin: async () => {
+    try {
+      const response = await api.get("/auth/google/login");
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Google OAuth initiation");
+    }
+  },
+
+  /**
+   * Verify Google ID token
+   * Used for Google Sign-In button integration
+   */
+  verifyGoogleToken: async (idToken) => {
+    try {
+      const response = await api.post("/auth/google/verify", {
+        id_token: idToken,
+      });
+
+      // Store token if provided
+      if (response.data.access_token) {
+        localStorage.setItem("token", response.data.access_token);
+      }
+
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Google token verification");
+    }
+  },
+
+  /**
+   * Link Google account to existing user
+   */
+  linkGoogleAccount: async (idToken) => {
+    try {
+      const response = await api.post("/auth/link-google", {
+        id_token: idToken,
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Link Google account");
+    }
+  },
+
+  /**
+   * Unlink Google account from user
+   */
+  unlinkGoogleAccount: async () => {
+    try {
+      const response = await api.post("/auth/unlink-google");
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Unlink Google account");
+    }
+  },
+
+
+ // ============================================
+  // ✅ TWO-FACTOR AUTHENTICATION (2FA) ENDPOINTS
+  // ============================================
+
+  /**
+   * Enable 2FA for user account
+   * Returns QR code and secret for authenticator app setup
+   */
+    enable2FA: async () => {
+    try {
+      const response = await api.post("/auth/2fa/enable");
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Enable 2FA");
+    }
+  },
+
+  /**
+   * Verify 2FA setup with OTP code
+   * Completes 2FA activation
+   */
+  verify2FASetup: async (otpCode) => {
+    try {
+      const response = await api.post("/auth/2fa/verify-setup", {
+        otp_code: otpCode,
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Verify 2FA setup");
+    }
+  },
+
+  /**
+   * Disable 2FA for user account
+   * Requires current password or OTP for confirmation
+   */
+  disable2FA: async (password = null, otpCode = null) => {
+    try {
+      const payload = {};
+      if (password) payload.password = password;
+      if (otpCode) payload.otp_code = otpCode;
+
+      const response = await api.post("/auth/2fa/disable", payload);
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Disable 2FA");
+    }
+  },
+
+  /**
+   * Verify OTP code (for login or sensitive operations)
+   */
+  verifyOTP: async (otpCode) => {
+    try {
+      const response = await api.post("/auth/2fa/verify", {
+        otp_code: otpCode,
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Verify OTP");
+    }
+  },
+
+  /**
+   * Get 2FA status for current user
+   */
+  get2FAStatus: async () => {
+    try {
+      const response = await api.get("/auth/2fa/status");
+      return response.data;
+    } catch (error) {
+      console.error("Failed to get 2FA status:", error);
+      return { enabled: false };
+    }
+  },
+
+  /**
+   * Generate backup codes for 2FA
+   */
+  generateBackupCodes: async () => {
+    try {
+      const response = await api.post("/auth/2fa/backup-codes");
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Generate backup codes");
+    }
+  },
+  // Set password for OAuth-only users
+  setPassword: async (newPassword) => {
+  try {
+    const response = await api.post("/auth/set-password", {
+      new_password: newPassword,
+    });
+    return response.data;
+  } catch (error) {
+    handleApiError(error, "Set password");
+  }
+},
+
+  /**
+   * Change password for logged-in user
+   * Enhanced version with better error handling
+   */
+  changePassword: async (currentPassword, newPassword) => {
+    try {
+      const response = await api.post("/auth/change-password", {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      return response.data;
+    } catch (error) {
+      handleApiError(error, "Change password");
+    }}};
+
+
 
 // Admin API functions (if needed)
 export const adminAPI = {

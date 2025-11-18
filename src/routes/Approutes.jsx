@@ -30,6 +30,7 @@ import ProtectedRoute from './ProtectedRoutes'
 import SalePage from '../pages/SalePage'
 import LicensePage from '../pages/LicensePage'
 import ArtworkDetail from '../pages/ArtworkDetail'
+import OAuthCallback from '../pages/OAuthCallback';
 
 const AppRoutes = () => {
     return (
@@ -51,6 +52,8 @@ const AppRoutes = () => {
                     <Route path="/licenses" element={<LicensesPage />} />
                     <Route path="/payment/callback" element={<PayPalCallback />} />
                     <Route path="/onboard-success" element={<PayPalOnboardSuccess />} />
+                    <Route path="/auth/callback" element={<OAuthCallback />} />
+                    {/* <Route path="/settings" element={<Settings />} /> */}
 
                     {/* User Dashboard routes with MainLayout */}
                     <Route 

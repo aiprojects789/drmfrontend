@@ -9,7 +9,7 @@ import { useWeb3 } from "./Web3Context";
 import { authAPI } from "../services/api";
 import toast from "react-hot-toast";
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -24,13 +24,30 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
-  const { account, connected, disconnectWallet: web3Disconnect } = useWeb3();
   const [isPayPalConnected, setIsPayPalConnected] = useState(false);
+  const [googleAuthInProgress, setGoogleAuthInProgress] = useState(false); // ✅ MOVED INSIDE COMPONENT
+  const [is2FAEnabled, setIs2FAEnabled] = useState(false);
+  const { account, connected, disconnectWallet: web3Disconnect } = useWeb3();
 
   // Refs to prevent unnecessary effects
   const loginInProgress = useRef(false);
   const lastAutoLinkAttempt = useRef(null);
   const logoutInProgress = useRef(false);
+
+  useEffect(() => {
+  const check2FAStatus = async () => {
+    if (user && token) {
+      try {
+        const response = await authAPI.get2FAStatus();
+        setIs2FAEnabled(response.enabled || false);
+      } catch (error) {
+        console.error('Failed to check 2FA status:', error);
+      }
+    }
+  };
+
+  check2FAStatus();
+}, [user, token]);
 
   // Initialize auth state from localStorage
   useEffect(() => {
@@ -39,9 +56,6 @@ export const AuthProvider = ({ children }) => {
 
       const savedToken = localStorage.getItem("token");
       const savedUser = localStorage.getItem("userData");
-
-      console.log("Saved token exists:", !!savedToken);
-      console.log("Saved user exists:", !!savedUser);
 
       if (savedToken && savedUser) {
         try {
@@ -77,35 +91,8 @@ export const AuthProvider = ({ children }) => {
     initializeAuth();
   }, []);
 
-  // Debug: Add a localStorage monitor to track token changes
-  useEffect(() => {
-    const originalSetItem = localStorage.setItem;
-    const originalRemoveItem = localStorage.removeItem;
-
-    localStorage.setItem = function (key, value) {
-      if (key === "token") {
-        console.log("🔍 localStorage.setItem called for token:", !!value);
-        console.trace("Token set stack trace:");
-      }
-      return originalSetItem.call(this, key, value);
-    };
-
-    localStorage.removeItem = function (key) {
-      if (key === "token") {
-        console.log("🗑️ localStorage.removeItem called for token");
-        console.trace("Token removed stack trace:");
-      }
-      return originalRemoveItem.call(this, key);
-    };
-
-    return () => {
-      localStorage.setItem = originalSetItem;
-      localStorage.removeItem = originalRemoveItem;
-    };
-  }, []);
-
   // Email/password login
-  const loginWithCredentials = async (email, password) => {
+  const loginWithCredentials = async (email, password, otpCode= null) => {
     console.log("🔄 Starting login process for:", email);
 
     if (loginInProgress.current) {
@@ -117,16 +104,17 @@ export const AuthProvider = ({ children }) => {
     setLoading(true);
 
     try {
-      // Create form data with correct field names for OAuth2
       const formData = new URLSearchParams();
       formData.append("username", email);
       formData.append("password", password);
 
-      // Make the API call with proper headers
+      // ✅ NEW: Add OTP code if provided (for 2FA)
+      if (otpCode) {
+        formData.append("otp_code", otpCode);
+      }
+
       const response = await fetch(
-        `${
-          import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
-        }/api/v1/auth/login`,
+        `${import.meta.env.VITE_BASE_URL_BACKEND || "http://localhost:8000"}/auth/login`,
         {
           method: "POST",
           headers: {
@@ -136,59 +124,76 @@ export const AuthProvider = ({ children }) => {
         }
       );
 
+      // ✅ NEW: Handle 2FA required response
+      if (response.status === 403) {
+        const errorData = await response.json();
+        if (errorData.detail === "2FA code required") {
+          console.log("🔐 2FA code required for user:", email);
+          loginInProgress.current = false;
+          setLoading(false);
+          return {
+            success: false,
+            require2FA: true,
+            message: "Please enter your 2FA code"
+          };
+        }
+      }
+
+            // ✅ NEW: Handle invalid 2FA code
+      if (response.status === 401) {
+        const errorData = await response.json();
+        if (errorData.detail === "Invalid 2FA code") {
+          console.log("❌ Invalid 2FA code for user:", email);
+          loginInProgress.current = false;
+          setLoading(false);
+          return {
+            success: false,
+            require2FA: true,
+            message: "Invalid 2FA code. Please try again."
+          };
+        }
+      }
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || "Login failed");
       }
 
       const data = await response.json();
-      console.log("📡 Login response received:", {
-        hasToken: !!data.access_token,
-        userRole: data.role,
-        userId: data.user_id,
-      });
 
-      // Validate and store token
       if (data.access_token) {
         const tokenParts = data.access_token.split(".");
         if (tokenParts.length !== 3) {
-          console.error("❌ Invalid JWT format received");
           throw new Error("Invalid token format received from server");
         }
 
-        // Store token immediately and update state
         localStorage.setItem("token", data.access_token);
         setToken(data.access_token);
-        console.log("✅ Token stored and state updated");
       } else {
         throw new Error("No access token received from server");
       }
 
-      // Create and store user object
       const userObj = {
         id: data.user_id,
         email: email,
         role: data.role || "user",
         wallet_address: data.wallet_address || null,
+        username: data.username,
+        two_factor_enabled: data.two_factor_enabled || false, // ✅ NEW
       };
 
       localStorage.setItem("userData", JSON.stringify(userObj));
       setUser(userObj);
-      console.log(
-        "✅ User state updated:",
-        userObj.email,
-        "Role:",
-        userObj.role
-      );
+      setIs2FAEnabled(data.two_factor_enabled || false); // ✅ NEW
 
       toast.success("Login successful!");
 
-      // Small delay to ensure state is properly set
       setTimeout(() => {
         loginInProgress.current = false;
       }, 1000);
 
-      return data;
+      return { success: true, data }; // ✅ UPDATED: Return success object
+
     } catch (error) {
       console.error("❌ Login failed:", error);
       toast.error("Login failed: " + (error.message || "Unknown error"));
@@ -199,46 +204,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // In AuthContext.jsx - Fix the connectWallet function signature and implementation
-  const connectWallet = async (providedAccount = null) => {
-    console.log("🔄 Starting wallet connection...");
+   // ✅ NEW: Alias for backward compatibility
+  const login = loginWithCredentials;
 
-    // Check both state and localStorage for token
+  // Connect wallet
+  const connectWallet = async (providedAccount = null) => {
     const currentToken = token || localStorage.getItem("token");
-    console.log("Auth state:", {
-      hasStateToken: !!token,
-      hasStorageToken: !!localStorage.getItem("token"),
-      hasAccount: !!account,
-      account,
-      providedAccount,
-    });
 
     if (!currentToken) {
-      console.error("❌ No authentication token found");
       toast.error("Please log in first to connect your wallet");
       return { error: "Not authenticated" };
     }
 
-    // ✅ FIXED: Use the provided account FIRST, then fallback to other sources
-    let walletAddress = providedAccount;
-
-    if (!walletAddress) {
-      // Try to get from Web3Context account
-      walletAddress = account;
-    }
+    let walletAddress = providedAccount || account;
 
     if (!walletAddress && window.ethereum) {
-      // Last resort: try to get directly from MetaMask
       try {
         const accounts = await window.ethereum.request({
           method: "eth_accounts",
         });
         if (accounts.length > 0) {
           walletAddress = accounts[0];
-          console.log(
-            "🔍 Got wallet address directly from MetaMask:",
-            walletAddress
-          );
         }
       } catch (error) {
         console.warn("Failed to get accounts from MetaMask:", error);
@@ -246,47 +232,26 @@ export const AuthProvider = ({ children }) => {
     }
 
     if (!walletAddress) {
-      console.error("❌ No wallet account available from any source");
-      toast.error(
-        "No wallet account available. Please connect MetaMask first."
-      );
+      toast.error("No wallet account available. Please connect MetaMask first.");
       return { error: "No wallet account available" };
     }
 
-    console.log("✅ Using wallet address:", walletAddress);
-
     setLoading(true);
     try {
-      console.log(
-        "📡 Making API call to connect wallet with account:",
-        walletAddress
-      );
-
       const response = await authAPI.connectWallet({
         wallet_address: walletAddress,
       });
 
-      console.log("✅ Wallet connection API response received:", response);
-
-      // Update token if provided
       if (response.access_token) {
         localStorage.setItem("token", response.access_token);
         setToken(response.access_token);
-        console.log("🔄 Token updated after wallet connection");
       }
 
-      // Update user data
       if (response.user) {
-        console.log("📝 Updating user data with wallet info:", response.user);
         localStorage.setItem("userData", JSON.stringify(response.user));
         setUser(response.user);
       } else {
-        // Fallback: update with current account
-        const updatedUser = {
-          ...user,
-          wallet_address: walletAddress,
-        };
-        console.log("📝 Updating user with wallet address:", updatedUser);
+        const updatedUser = { ...user, wallet_address: walletAddress };
         localStorage.setItem("userData", JSON.stringify(updatedUser));
         setUser(updatedUser);
       }
@@ -295,63 +260,38 @@ export const AuthProvider = ({ children }) => {
       return response;
     } catch (error) {
       console.error("❌ Wallet connection failed:", error);
-
-      if (error.message.includes("403")) {
-        toast.error("Authentication failed. Please log in again.");
-      } else if (error.message.includes("400")) {
-        toast.error("Wallet connection failed: " + error.message);
-      } else {
-        toast.error(
-          "Failed to connect wallet: " + (error.message || "Connection failed")
-        );
-      }
-
+      toast.error("Failed to connect wallet: " + (error.message || "Connection failed"));
       return { error: error.message };
     } finally {
       setLoading(false);
     }
   };
 
-  // Add PayPal connection function
+  // Connect PayPal
   const connectPayPal = async (merchantId) => {
-    console.log("🔄 Starting PayPal connection...");
-
     const currentToken = token || localStorage.getItem("token");
     if (!currentToken) {
-      console.error("❌ No authentication token found");
       toast.error("Please log in first to connect your PayPal account");
       return { error: "Not authenticated" };
     }
 
     if (!merchantId) {
-      console.error("❌ No merchant ID provided");
       toast.error("No merchant ID provided");
       return { error: "No merchant ID provided" };
     }
 
     setLoading(true);
     try {
-      console.log(
-        "📡 Making API call to connect PayPal with merchant:",
-        merchantId
-      );
-
       const response = await authAPI.connectPayPal({
         merchant_id: merchantId,
       });
 
-      console.log("✅ PayPal connection API response received:", response);
-
-      // Update token if provided
       if (response.access_token) {
         localStorage.setItem("token", response.access_token);
         setToken(response.access_token);
-        console.log("🔄 Token updated after PayPal connection");
       }
 
-      // Update user data
       if (response.user) {
-        console.log("📝 Updating user data with PayPal info:", response.user);
         localStorage.setItem("userData", JSON.stringify(response.user));
         setUser(response.user);
         setIsPayPalConnected(true);
@@ -361,19 +301,15 @@ export const AuthProvider = ({ children }) => {
       return response;
     } catch (error) {
       console.error("❌ PayPal connection failed:", error);
-      toast.error(
-        "Failed to connect PayPal: " + (error.message || "Connection failed")
-      );
+      toast.error("Failed to connect PayPal: " + (error.message || "Connection failed"));
       return { error: error.message };
     } finally {
       setLoading(false);
     }
   };
 
-  // Add PayPal disconnection function
+  // Disconnect PayPal
   const disconnectPayPal = async () => {
-    console.log("🔄 Disconnecting PayPal...");
-
     const currentToken = token || localStorage.getItem("token");
     if (!currentToken) {
       return;
@@ -383,7 +319,6 @@ export const AuthProvider = ({ children }) => {
     try {
       await authAPI.disconnectPayPal();
 
-      // Update user state
       const updatedUser = {
         ...user,
         paypal_merchant_id: null,
@@ -402,7 +337,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Update the auto-link useEffect in AuthContext.jsx
+  // Auto-link wallet
   useEffect(() => {
     const linkWalletToAccount = async () => {
       const isAuth = !!token;
@@ -411,25 +346,10 @@ export const AuthProvider = ({ children }) => {
         user?.wallet_address?.toLowerCase() === account?.toLowerCase();
       const currentAttemptKey = `${isAuth}-${walletConnected}-${account}-${user?.wallet_address}`;
 
-      console.log("🔄 Auto-link check:", {
-        isAuth,
-        walletConnected,
-        isWalletLinked,
-        userWallet: user?.wallet_address,
-        account,
-        isInitialized,
-        loginInProgress: loginInProgress.current,
-        lastAttemptKey: lastAutoLinkAttempt.current,
-        currentAttemptKey,
-      });
-
-      // Throttle auto-link attempts
       if (lastAutoLinkAttempt.current === currentAttemptKey) {
-        console.log("⚠️ Skipping duplicate auto-link attempt");
         return;
       }
 
-      // Only auto-link if all conditions are met AND wallet is not already linked
       if (
         isAuth &&
         walletConnected &&
@@ -441,8 +361,6 @@ export const AuthProvider = ({ children }) => {
       ) {
         lastAutoLinkAttempt.current = currentAttemptKey;
         try {
-          console.log("🔗 Auto-linking wallet to account...");
-          // ✅ FIXED: Pass the account directly
           await connectWallet(account);
         } catch (error) {
           console.error("❌ Failed to auto-link wallet:", error);
@@ -450,13 +368,113 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    // Only run if initialized and not in the middle of login
     if (isInitialized && !loginInProgress.current) {
-      // Add small delay to prevent race conditions
       const timeoutId = setTimeout(linkWalletToAccount, 1000);
       return () => clearTimeout(timeoutId);
     }
   }, [token, connected, account, user?.wallet_address, isInitialized, loading]);
+
+  // ============================================
+  // GOOGLE OAUTH FUNCTIONS
+  // ============================================
+
+  const verifyGoogleToken = async (idToken) => {
+    console.log("🔄 Verifying Google token...");
+    setLoading(true);
+
+    try {
+      const response = await authAPI.verifyGoogleToken(idToken);
+
+      if (!response.access_token) {
+        throw new Error("No access token received");
+      }
+
+      localStorage.setItem("token", response.access_token);
+      setToken(response.access_token);
+
+      const userObj = {
+        id: response.user_id,
+        email: response.email,
+        role: response.role || "user",
+        wallet_address: response.wallet_address || null,
+        oauth_provider: "google",
+        profile_picture: response.profile_picture || null,
+      };
+
+      localStorage.setItem("userData", JSON.stringify(userObj));
+      setUser(userObj);
+
+      toast.success("Logged in with Google!");
+      console.log("✅ Google token verified:", userObj.email);
+
+      return response;
+    } catch (error) {
+      console.error("❌ Google token verification failed:", error);
+      toast.error("Google login failed: " + (error.message || "Verification failed"));
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const linkGoogleAccount = async (idToken) => {
+    if (!token) {
+      toast.error("Please log in first to link your Google account");
+      return { error: "Not authenticated" };
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await authAPI.linkGoogleAccount(idToken);
+
+      if (response.profile_picture) {
+        const updatedUser = {
+          ...user,
+          oauth_provider: "google",
+          profile_picture: response.profile_picture,
+        };
+        localStorage.setItem("userData", JSON.stringify(updatedUser));
+        setUser(updatedUser);
+      }
+
+      toast.success("Google account linked successfully!");
+      return response;
+    } catch (error) {
+      console.error("❌ Google account linking failed:", error);
+      toast.error("Failed to link Google account: " + (error.message || "Unknown error"));
+      return { error: error.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const unlinkGoogleAccount = async () => {
+    if (!token) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      await authAPI.unlinkGoogleAccount();
+
+      const updatedUser = {
+        ...user,
+        oauth_provider: null,
+        profile_picture: null,
+      };
+      localStorage.setItem("userData", JSON.stringify(updatedUser));
+      setUser(updatedUser);
+
+      toast.success("Google account unlinked");
+    } catch (error) {
+      console.error("❌ Google account unlinking failed:", error);
+      toast.error("Failed to unlink Google account");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Signup
   const signup = async (userData) => {
@@ -464,8 +482,6 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await authAPI.signup(userData);
 
-      // For signup, we might not get a token immediately
-      // The backend returns UserOut, not Token
       if (response.access_token) {
         localStorage.setItem("token", response.access_token);
         setToken(response.access_token);
@@ -493,39 +509,17 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Logout - with caller tracking and prevention during active operations
+  // Logout
   const logout = (caller = "unknown") => {
-    console.log("🔄 Logout called by:", caller);
-    console.log("Current auth state before logout:", {
-      hasToken: !!token,
-      hasUser: !!user,
-      loginInProgress: loginInProgress.current,
-      loading,
-      logoutInProgress: logoutInProgress.current,
-    });
-
-    // Don't logout if already in progress
-    if (logoutInProgress.current) {
-      console.log("⚠️ Logout already in progress, ignoring");
-      return;
-    }
-
-    // Don't logout if login is in progress OR if we're in a loading state
-    if (loginInProgress.current) {
-      console.log("⚠️ Preventing logout during login process");
-      return;
-    }
-
-    if (loading) {
-      console.log("⚠️ Preventing logout during loading operation");
+    if (logoutInProgress.current || loginInProgress.current || loading) {
       return;
     }
 
     logoutInProgress.current = true;
-    console.log("✅ Proceeding with logout");
 
     setUser(null);
     setToken(null);
+    setIs2FAEnabled(false); // ✅ NEW: Reset 2FA status
     localStorage.removeItem("token");
     localStorage.removeItem("userData");
     lastAutoLinkAttempt.current = null;
@@ -535,9 +529,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     toast.success("Logged out successfully");
-    console.log("✅ Logout complete");
 
-    // Reset logout flag after a delay
     setTimeout(() => {
       logoutInProgress.current = false;
     }, 1000);
@@ -567,14 +559,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Calculate wallet connection status with case-insensitive comparison
+  // Calculate wallet connection status
   const isWalletConnected =
     connected &&
     !!account &&
     !!user?.wallet_address &&
     user.wallet_address.toLowerCase() === account.toLowerCase();
 
-  // Update the useEffect that checks wallet connection to also check PayPal
+  // Check PayPal connection
   useEffect(() => {
     if (user?.paypal_merchant_id && user?.paypal_onboarded) {
       setIsPayPalConnected(true);
@@ -583,11 +575,58 @@ export const AuthProvider = ({ children }) => {
     }
   }, [user]);
 
+    // ✅ NEW: Refresh 2FA status
+  const refresh2FAStatus = async () => {
+    if (user && token) {
+      try {
+        const response = await authAPI.get2FAStatus();
+        setIs2FAEnabled(response.enabled || false);
+        
+        // Update user data in localStorage
+        const updatedUser = {
+          ...user,
+          two_factor_enabled: response.enabled || false
+        };
+        setUser(updatedUser);
+        localStorage.setItem("userData", JSON.stringify(updatedUser));
+      } catch (error) {
+        console.error('Failed to refresh 2FA status:', error);
+      }
+    }
+  };
+
+  const refreshUser = async () => {
+    try {
+        const response = await authAPI.getCurrentUser();
+        if (response) {
+            const updatedUser = {
+                id: response.user_id || response.id,
+                email: response.email,
+                role: response.role || "user",
+                wallet_address: response.wallet_address || null,
+                username: response.username,
+                two_factor_enabled: response.two_factor_enabled || false,
+                oauth_provider: response.oauth_provider || null,
+                hashed_password: response.hashed_password || null, // ✅ Important!
+            };
+            
+            localStorage.setItem('userData', JSON.stringify(updatedUser));
+            setUser(updatedUser);
+            
+            console.log('✅ User data refreshed');
+        }
+    } catch (error) {
+        console.error('Failed to refresh user data:', error);
+    }
+};
+
+
   const value = {
     user,
     token,
     loading,
     isInitialized,
+    is2FAEnabled, // ✅ ADD THIS
     isAuthenticated: isInitialized && !!token,
     isWalletConnected,
     isPayPalConnected,
@@ -597,8 +636,14 @@ export const AuthProvider = ({ children }) => {
     connectPayPal,
     disconnectPayPal,
     logout,
+    refresh2FAStatus, // ✅ NEW: Expose refresh function
     getCurrentUser,
     signup,
+    verifyGoogleToken,
+    linkGoogleAccount,
+    unlinkGoogleAccount,
+    googleAuthInProgress,
+    refreshUser, // ✅ NEW: Add this
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
