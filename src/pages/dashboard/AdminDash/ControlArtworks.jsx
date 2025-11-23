@@ -4,7 +4,7 @@ import { CheckCircle, XCircle } from 'lucide-react';
 import axios from 'axios';
 
 const { Meta } = Card;
-const baseURL = "http://127.0.0.1:8000//api/v1/admin";
+const baseURL = "http://34.237.75.215:8000//api/v1/admin";
 
 const ControlArtworks = () => {
   const [artworks, setArtworks] = useState([]);
@@ -68,7 +68,7 @@ const ControlArtworks = () => {
           const imageSrc = art.image
             ? art.image.startsWith("http")
               ? art.image
-              : `http://127.0.0.1:8000/${art.image}`
+              : `http://34.237.75.215:8000/${art.image}`
             : "/artwork.jfif";
 
           return (

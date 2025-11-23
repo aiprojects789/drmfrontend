@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Table, Input, Button, message, Modal, Form } from 'antd';
 import axios from 'axios';
 
-const baseURL = "http://127.0.0.1:8000/api/v1/admin";
+const baseURL = "http://34.237.75.215:8000/api/v1/admin";
 
 const AdminUserManagement = () => {
   const [users, setUsers] = useState([]);
