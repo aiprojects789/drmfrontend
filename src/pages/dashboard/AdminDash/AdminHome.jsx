@@ -17,8 +17,8 @@ useEffect(() => {
     try {
       // Parallel API calls
       const [usersRes, artworksRes] = await Promise.all([
-        axios.get(`${baseURL}/api/v1/admin/users/summary-full`),
-        axios.get(`${baseURL}/api/v1/admin/artworks/summary-full?page=1&limit=50`)
+        axios.get(`${baseURL}/admin/users/summary-full`),
+        axios.get(`${baseURL}/admin/artworks/summary-full?page=1&limit=50`)
       ]);
 
       setStats({
