@@ -4,6 +4,10 @@ import axios from 'axios';
 import { baseURL } from '../../../utils/backend_url'; // adjust path if needed
 
 
+<<<<<<< HEAD
+=======
+import { baseURL } from '../../../utils/backend_url'; // adjust path if needed
+>>>>>>> bfc73dc51b9e432925a17ab56c1ada78271f2a34
 
 const AdminUserManagement = () => {
   const [users, setUsers] = useState([]);
