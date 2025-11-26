@@ -5,10 +5,6 @@ import axios from 'axios';
 
 const { Meta } = Card;
 import { baseURL } from '../../../utils/backend_url'; // adjust path if needed
-<<<<<<< HEAD
-
-=======
->>>>>>> bfc73dc51b9e432925a17ab56c1ada78271f2a34
 
 const ControlArtworks = () => {
   const [artworks, setArtworks] = useState([]);

@@ -33,7 +33,8 @@ const PayPalButton = () => {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'application/json'
-          }
+          },
+          credentials: 'include'
         }
       );
 
