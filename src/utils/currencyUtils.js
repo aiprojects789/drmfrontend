@@ -1,6 +1,6 @@
 // Currency conversion utilities
 export class CurrencyConverter {
-  static ethToUsdRate = 3500; // Example rate - you should get this from an API
+  static ethToUsdRate = 2700; // Example rate - you should get this from an API
   
   static ethToUsd(ethAmount) {
     return parseFloat(ethAmount) * this.ethToUsdRate;

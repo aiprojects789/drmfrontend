@@ -27,9 +27,9 @@ const SalePage = () => {
     sendTransaction,
     balance,
     web3,
-    web3Utils, 
-    connectWallet, 
-    switchToSepolia, 
+    web3Utils,
+    connectWallet,
+    switchToSepolia,
   } = useWeb3();
   const { isAuthenticated, user } = useAuth();
 
@@ -39,7 +39,7 @@ const SalePage = () => {
   const [purchasing, setPurchasing] = useState(false);
   const [error, setError] = useState(null);
   const [simulationResults, setSimulationResults] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState("crypto");
+  const [paymentMethod, setPaymentMethod] = useState("paypal");
 
   // Get user identifier
   const userIdentifier = UserIdentifier.getUserIdentifier(user);
@@ -204,10 +204,420 @@ const SalePage = () => {
     });
   };
 
+  // const handlePurchase = async () => {
+  //   if (!isAuthenticated) {
+  //     toast.error("Please log in to purchase");
+  //     return;
+  //   }
+
+  //   // Enhanced wallet connection check for crypto payments
+  //   if (paymentMethod === "crypto") {
+  //     if (!account) {
+  //       toast.error("Please connect your wallet");
+  //       const connected = await connectWallet();
+  //       if (!connected) return;
+  //     }
+
+  //     if (!isCorrectNetwork) {
+  //       toast.error("Please switch to Sepolia testnet");
+  //       const switched = await switchToSepolia();
+  //       if (!switched) return;
+  //     }
+
+  //     // ✅ COMPREHENSIVE WEB3 CHECK
+  //     if (!web3 || !web3.utils) {
+  //       console.error("Web3 not available:", {
+  //         web3: !!web3,
+  //         utils: web3?.utils,
+  //       });
+  //       toast.error("Web3 not available. Reconnecting wallet...");
+
+  //       // Try to reconnect
+  //       const reconnected = await connectWallet();
+  //       if (!reconnected) {
+  //         toast.error("Failed to initialize Web3. Please refresh the page.");
+  //         return;
+  //       }
+
+  //       // Check again after reconnection
+  //       if (!web3 || !web3.utils) {
+  //         toast.error("Web3 still not available. Please refresh the page.");
+  //         return;
+  //       }
+  //     }
+  //   }
+
+  //   // Validate blockchain data before purchase
+  //   if (
+  //     !blockchainInfo ||
+  //     !blockchainInfo.owner ||
+  //     blockchainInfo.owner === "Unknown"
+  //   ) {
+  //     toast.error("Cannot process purchase: Invalid owner information");
+  //     return;
+  //   }
+
+  //   // Use artwork price
+  //   const price = artwork.price;
+
+  //   if (price <= 0 || isNaN(price)) {
+  //     toast.error("Artwork price is not set or invalid");
+  //     return;
+  //   }
+
+  //   // For crypto, check balance
+  //   if (paymentMethod === "crypto") {
+  //     const balanceEth = parseFloat(balance);
+  //     const requiredBalance = price + 0.01; // Include gas estimate
+
+  //     if (balanceEth < requiredBalance) {
+  //       toast.error(
+  //         `Insufficient balance. Need ${requiredBalance.toFixed(
+  //           4
+  //         )} ETH, have ${balanceEth} ETH`
+  //       );
+  //       return;
+  //     }
+  //   }
+
+  //   setPurchasing(true);
+  //   setError(null);
+
+  //   try {
+  //     console.log("🔄 Proceeding with purchase...");
+  //     console.log("Web3 status:", {
+  //       web3: !!web3,
+  //       utils: web3?.utils,
+  //       account,
+  //       paymentMethod,
+  //     });
+
+  //     // ✅ SAFE PRICE CONVERSION WITH MULTIPLE FALLBACKS
+  //     let salePriceWei;
+
+  //     // Method 1: Use web3 from context (preferred)
+  //     if (web3 && web3.utils) {
+  //       console.log("Using Web3 from context for price conversion");
+  //       salePriceWei = web3.utils.toWei(price.toString(), "ether");
+  //     }
+  //     // Method 2: Use web3Utils from context
+  //     else if (web3Utils) {
+  //       console.log("Using web3Utils for price conversion");
+  //       salePriceWei = web3Utils.toWei(price.toString(), "ether");
+  //     }
+  //     // Method 3: Use ethers.js
+  //     else if (typeof ethers !== "undefined") {
+  //       console.log("Using ethers.js for price conversion");
+  //       salePriceWei = ethers.parseEther(price.toString()).toString();
+  //     }
+  //     // Method 4: Manual calculation (fallback)
+  //     else {
+  //       console.log("Using manual calculation for price conversion");
+  //       salePriceWei = (price * 1e18).toString();
+  //     }
+
+  //     console.log("💰 Price conversion:", {
+  //       eth: price,
+  //       wei: salePriceWei,
+  //       method: "web3 context",
+  //     });
+
+  //     // ✅ FIXED: Send proper request body with correct field names
+  //     const prepareResponse = await artworksAPI.prepareSaleTransaction({
+  //       token_id: parseInt(tokenId),
+  //       buyer_address: account || userIdentifier,
+  //       seller_address: blockchainInfo.owner,
+  //       sale_price_wei: salePriceWei, // ✅ Send wei value, not ETH
+  //     });
+
+  //     console.log("✅ Sale preparation response:", prepareResponse);
+
+
+
+  //     // ✅ FIXED: Better response validation
+  //     if (!prepareResponse || typeof prepareResponse !== 'object') {
+  //       throw new Error("Invalid response from server");
+
+  //     }
+  //     // Check if it's a PayPal response
+  //     if (prepareResponse.payment_method === "paypal" || prepareResponse.type === "paypal") {
+  //       const approvalUrl = prepareResponse.transaction_data?.approval_url || prepareResponse.approval_url;
+  //       if (approvalUrl) {
+  //         window.location.href = approvalUrl;
+  //         return;
+  //       }
+  //     }
+  //     // ✅ FIXED: Handle different response structures
+  //     const transactionData =
+  //       prepareResponse.transaction_data || prepareResponse;
+
+  //     // Validate required fields for MetaMask
+  //     if (!transactionData.to || !transactionData.value) {
+  //       console.error("Missing transaction data:", transactionData);
+  //       throw new Error("Blockchain transaction required but not provided");
+  //     }
+
+  //     const requiresBlockchain = prepareResponse.requires_blockchain !== false;
+  //     const mode = prepareResponse.mode || "REAL";
+
+  //     // // Handle PayPal response
+  //     // if (prepareResponse.payment_method === "paypal") {
+  //     //   window.location.href = prepareResponse.transaction_data.approval_url;
+  //     //   return;
+  //     // }
+
+  //     // ✅ FIXED: Handle MetaMask flow with proper transaction data
+  //     if (
+  //       (prepareResponse.payment_method === "crypto" ||
+  //         paymentMethod === "crypto") &&
+  //       requiresBlockchain
+  //     ) {
+  //       // Prepare transaction parameters for MetaMask
+  //       const txParams = {
+  //         to: transactionData.to,
+  //         data: transactionData.data,
+  //         from: account,
+  //         value: transactionData.value, // This should already be in wei hex format
+  //       };
+
+  //       // Add gas settings
+  //       if (
+  //         transactionData.maxFeePerGas &&
+  //         transactionData.maxPriorityFeePerGas
+  //       ) {
+  //         txParams.maxFeePerGas = transactionData.maxFeePerGas;
+  //         txParams.maxPriorityFeePerGas = transactionData.maxPriorityFeePerGas;
+  //       } else if (transactionData.gasPrice) {
+  //         txParams.gasPrice = transactionData.gasPrice;
+  //       }
+
+  //       // Add gas limit if provided
+  //       if (transactionData.gas) {
+  //         txParams.gasLimit = transactionData.gas;
+  //       }
+
+  //       // Add chain ID if provided
+  //       if (transactionData.chainId) {
+  //         txParams.chainId = parseInt(transactionData.chainId, 16);
+  //       }
+
+  //       console.log("🦊 Sending transaction to MetaMask:", txParams);
+
+  //       // ✅ This WILL trigger MetaMask popup
+  //       const result = await sendTransaction(txParams);
+
+  //       if (!result || !result.hash) {
+  //         throw new Error("No transaction hash received from MetaMask");
+  //       }
+
+  //       toast.success(
+  //         "Purchase transaction submitted! Waiting for confirmation..."
+  //       );
+  //       console.log("📝 Transaction hash:", result.hash);
+
+  //       try {
+  //         // ✅ NEW: Confirm the transaction with backend
+  //         const confirmToast = toast.loading(
+  //           "Confirming transaction on blockchain..."
+  //         );
+
+  //         // ✅ FIXED: Send proper confirmation data
+  //         await artworksAPI.confirmSale({
+  //           tx_hash: result.hash,
+  //           token_id: parseInt(tokenId),
+  //           buyer_address: account,
+  //           seller_address: blockchainInfo.owner,
+  //           sale_price_wei: salePriceWei, // Use the wei value we calculated
+  //           sale_price_eth: price, // Original ETH price for display
+  //           payment_method: paymentMethod,
+  //         });
+
+  //         toast.dismiss(confirmToast);
+  //         toast.success(
+  //           "✅ Purchase completed successfully! Transaction confirmed on blockchain."
+  //         );
+
+  //         // Refresh data to show new owner
+  //         await fetchArtworkData();
+
+  //         setTimeout(() => {
+  //           navigate(`/artwork/${tokenId}`);
+  //         }, 2000);
+  //       } catch (confirmationError) {
+  //         console.error("Sale confirmation failed:", confirmationError);
+  //         // Even if confirmation fails, the transaction might still succeed
+  //         toast.success(
+  //           "✅ Transaction submitted! Please check your collection in a few moments."
+  //         );
+
+  //         setTimeout(() => {
+  //           navigate(`/artwork/${tokenId}`);
+  //         }, 2000);
+  //       }
+  //     } else {
+  //       throw new Error(
+  //         "Invalid response: Blockchain transaction required but not provided"
+  //       );
+  //     }
+  //   } catch (error) {
+  //     console.error("❌ Purchase failed:", error);
+
+  //     // ✅ IMPROVED: Better error handling
+  //     if (error.code === 4001) {
+  //       setError("Transaction cancelled by user in MetaMask");
+  //       toast.error("Transaction cancelled by user");
+  //     } else if (error.code === -32603) {
+  //       setError(
+  //         "Transaction failed. Please check your gas settings and try again."
+  //       );
+  //       toast.error("Transaction failed. Check gas settings.");
+  //     } else if (error.message?.includes("insufficient funds")) {
+  //       setError("Insufficient funds. Please add ETH to your wallet.");
+  //       toast.error("Insufficient funds. Add ETH to your wallet.");
+  //     } else if (
+  //       error.message?.includes("user rejected") ||
+  //       error.message?.includes("denied")
+  //     ) {
+  //       setError("Transaction rejected by user in MetaMask.");
+  //       toast.error("Transaction rejected by user");
+  //     } else if (error.message?.includes("demo mode")) {
+  //       setError(
+  //         "Blockchain service is in demo mode. Real transactions are disabled."
+  //       );
+  //       toast.error("Blockchain service is in demo mode.");
+  //     } else if (error.message?.includes("not connected")) {
+  //       setError(
+  //         "Blockchain connection issue detected, but proceeding with purchase..."
+  //       );
+  //       toast.success("Proceeding with purchase despite connection warning...");
+  //       // Retry the purchase without health check
+  //       setTimeout(() => handlePurchase(), 1000);
+  //       return;
+  //     } else if (error.response?.status === 422) {
+  //       // ✅ FIXED: Handle 422 errors specifically
+  //       const errorDetail = error.response?.data?.detail;
+  //       if (Array.isArray(errorDetail)) {
+  //         // Handle validation errors
+  //         const fieldErrors = errorDetail
+  //           .map((err) => `${err.loc.join(".")}: ${err.msg}`)
+  //           .join(", ");
+  //         setError(`Validation error: ${fieldErrors}`);
+  //         toast.error("Validation error. Please check your input.");
+  //       } else if (typeof errorDetail === "string") {
+  //         setError(errorDetail);
+  //         toast.error(errorDetail);
+  //       } else {
+  //         setError(
+  //           "Invalid request format. Please check your input and try again."
+  //         );
+  //         toast.error("Invalid request format.");
+  //       }
+  //     } else if (error.response?.status === 400) {
+  //       setError(
+  //         error.response?.data?.detail ||
+  //         "Bad request. Please check your input."
+  //       );
+  //       toast.error(error.response?.data?.detail || "Bad request.");
+  //     } else if (error.response?.status === 500) {
+  //       setError("Server error. Please try again later.");
+  //       toast.error("Server error. Please try again later.");
+  //     } else {
+  //       const errorMessage =
+  //         error.response?.data?.detail ||
+  //         error.response?.data?.error ||
+  //         error.message ||
+  //         "Purchase failed. Please try again.";
+  //       setError(errorMessage);
+  //       toast.error(errorMessage || "Purchase failed");
+  //     }
+  //   } finally {
+  //     setPurchasing(false);
+  //   }
+  // };
+
   const handlePurchase = async () => {
     if (!isAuthenticated) {
       toast.error("Please log in to purchase");
       return;
+    }
+    // ✅ STEP 1: CHECK PAYMENT METHOD FIRST
+    // If PayPal, skip all wallet checks
+    if (paymentMethod === "paypal") {
+      setPurchasing(true);
+      setError(null);
+
+      try {
+        console.log("🔄 Processing PayPal purchase...");
+
+        // ✅ Calculate USD price using same converter as display
+    const priceUSD = CurrencyConverter.ethToUsd(artwork.price);
+
+    console.log("💰 Price Details:", {
+      price_eth: artwork.price,
+      price_usd: priceUSD,
+      displayed: formatPrice(artwork.price)
+    });
+
+        // / ✅ LOG THE REQUEST
+        const requestData = {
+          token_id: parseInt(tokenId),
+          buyer_address: user?.wallet_address || user?.email || 'paypal_user',
+          payment_method: "paypal"
+        };
+
+        console.log("📤 Sending PayPal request:", requestData);
+
+        const prepareResponse = await artworksAPI.prepareSaleTransaction({
+          token_id: parseInt(tokenId),
+          buyer_address: user?.wallet_address || user?.email || 'paypal_user',
+          seller_address: blockchainInfo.owner,
+          payment_method: "paypal",
+          sale_price: priceUSD  // ✅ ADD THIS
+        });
+
+        // ✅ FULL RESPONSE LOGGING
+        console.log("=== FULL PAYPAL RESPONSE ===");
+        console.log("Type:", typeof prepareResponse);
+        console.log("Keys:", Object.keys(prepareResponse || {}));
+        console.log("Full object:", JSON.stringify(prepareResponse, null, 2));
+        console.log("transaction_data:", prepareResponse?.transaction_data);
+        console.log("approval_url direct:", prepareResponse?.approval_url);
+        console.log("=== END ===");
+
+
+        console.log("✅ PayPal preparation response:", prepareResponse);
+
+        // Check if it's a PayPal response
+        if (prepareResponse?.transaction_data?.type === "paypal" || paymentMethod === "paypal") {
+          const approvalUrl = prepareResponse?.transaction_data?.approval_url;
+
+          console.log("🔗 Approval URL:", approvalUrl);
+
+          if (approvalUrl) {
+            console.log("✅ Redirecting to PayPal:", approvalUrl);
+            window.location.href = approvalUrl;
+            return;
+          } else {
+            throw new Error('PayPal approval URL not provided');
+          }
+        }
+
+        throw new Error('Invalid PayPal response');
+
+
+
+      }
+
+      catch (error) {
+        console.error("❌ PayPal purchase failed:", error);
+        const errorMessage = error.response?.data?.detail || error.message || "PayPal purchase failed";
+        setError(errorMessage);
+        toast.error(errorMessage);
+      } finally {
+        setPurchasing(false);
+      }
+
+      return; // ✅ EXIT HERE FOR PAYPAL
     }
 
     // Enhanced wallet connection check for crypto payments
@@ -328,21 +738,40 @@ const SalePage = () => {
         buyer_address: account || userIdentifier,
         seller_address: blockchainInfo.owner,
         sale_price_wei: salePriceWei, // ✅ Send wei value, not ETH
+        payment_method: paymentMethod
       });
 
       console.log("✅ Sale preparation response:", prepareResponse);
 
-      // ✅ FIXED: Handle different response structures
-      const transactionData =
-        prepareResponse.transaction_data || prepareResponse;
+      // ✅ FIXED: Better response validation
+      if (!prepareResponse || typeof prepareResponse !== 'object') {
+        throw new Error("Invalid response from server");
+      }
+
+      // ✅ NEW FIX: Check if response has transaction fields directly at root level
+      let transactionData;
+      if (prepareResponse.to && prepareResponse.value) {
+        // Response IS the transaction data
+        transactionData = prepareResponse;
+        console.log("✅ Using root-level transaction data");
+      } else if (prepareResponse.transaction_data) {
+        // Response has nested transaction_data
+        transactionData = prepareResponse.transaction_data;
+        console.log("✅ Using nested transaction_data");
+      } else {
+        // No valid transaction data found
+        console.error("Missing transaction data:", prepareResponse);
+        throw new Error("Blockchain transaction required but not provided");
+      }
+
+      // Validate required fields for MetaMask
+      if (!transactionData.to || !transactionData.value) {
+        console.error("Missing required fields:", transactionData);
+        throw new Error("Blockchain transaction required but not provided");
+      }
+
       const requiresBlockchain = prepareResponse.requires_blockchain !== false;
       const mode = prepareResponse.mode || "REAL";
-
-      // Handle PayPal response
-      if (prepareResponse.payment_method === "paypal") {
-        window.location.href = prepareResponse.transaction_data.approval_url;
-        return;
-      }
 
       // ✅ FIXED: Handle MetaMask flow with proper transaction data
       if (
@@ -493,7 +922,7 @@ const SalePage = () => {
       } else if (error.response?.status === 400) {
         setError(
           error.response?.data?.detail ||
-            "Bad request. Please check your input."
+          "Bad request. Please check your input."
         );
         toast.error(error.response?.data?.detail || "Bad request.");
       } else if (error.response?.status === 500) {
@@ -667,15 +1096,14 @@ const SalePage = () => {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Sale Type</span>
                 <span
-                  className={`text-sm px-2 py-1 rounded-full ${
-                    artwork.creator_address.toLowerCase() ===
+                  className={`text-sm px-2 py-1 rounded-full ${artwork.creator_address.toLowerCase() ===
                     blockchainInfo.owner.toLowerCase()
-                      ? "bg-blue-100 text-blue-800"
-                      : "bg-green-100 text-green-800"
-                  }`}
+                    ? "bg-blue-100 text-blue-800"
+                    : "bg-green-100 text-green-800"
+                    }`}
                 >
                   {artwork.creator_address.toLowerCase() ===
-                  blockchainInfo.owner.toLowerCase()
+                    blockchainInfo.owner.toLowerCase()
                     ? "Primary Sale"
                     : "Secondary Sale"}
                 </span>
@@ -685,11 +1113,10 @@ const SalePage = () => {
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Listed With</span>
                   <span
-                    className={`text-sm px-2 py-1 rounded-full ${
-                      artwork.payment_method === "paypal"
-                        ? "bg-yellow-100 text-yellow-800"
-                        : "bg-blue-100 text-blue-800"
-                    }`}
+                    className={`text-sm px-2 py-1 rounded-full ${artwork.payment_method === "paypal"
+                      ? "bg-yellow-100 text-yellow-800"
+                      : "bg-blue-100 text-blue-800"
+                      }`}
                   >
                     {artwork.payment_method === "paypal" ? (
                       <CreditCard className="w-3 h-3 inline mr-1" />
@@ -705,19 +1132,18 @@ const SalePage = () => {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Blockchain Status</span>
                 <span
-                  className={`text-sm px-2 py-1 rounded-full ${
-                    blockchainInfo.blockchain_status === "full"
-                      ? "bg-green-100 text-green-800"
-                      : blockchainInfo.blockchain_status === "partial"
+                  className={`text-sm px-2 py-1 rounded-full ${blockchainInfo.blockchain_status === "full"
+                    ? "bg-green-100 text-green-800"
+                    : blockchainInfo.blockchain_status === "partial"
                       ? "bg-yellow-100 text-yellow-800"
                       : "bg-red-100 text-red-800"
-                  }`}
+                    }`}
                 >
                   {blockchainInfo.blockchain_status === "full"
                     ? "Live"
                     : blockchainInfo.blockchain_status === "partial"
-                    ? "Partial"
-                    : "Fallback"}
+                      ? "Partial"
+                      : "Fallback"}
                 </span>
               </div>
             </div>

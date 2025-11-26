@@ -109,6 +109,7 @@ const MyArtworks = () => {
       </div>
     );
   }
+  console.log('Artwork payment method:', artworks.payment_method);
 
   return (
     <>
@@ -141,7 +142,7 @@ const MyArtworks = () => {
             You haven't registered any artworks yet
           </p>
           <Link
-            to="/register"
+            to="/dashboard/upload"
             className="text-purple-600 hover:text-purple-800 font-medium"
           >
             Register your first artwork

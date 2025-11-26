@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Input, Button, message, Modal, Form } from 'antd';
 import axios from 'axios';
+import { baseURL } from '../../../utils/backend_url'; // adjust path if needed
 
-const baseURL = "http://127.0.0.1:8000/api/v1/admin";
+
 
 const AdminUserManagement = () => {
   const [users, setUsers] = useState([]);

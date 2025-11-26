@@ -5,8 +5,8 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 
 const PayPalButton = () => {
-  const { 
-    isAuthenticated, 
+  const {
+    isAuthenticated,
     isPayPalConnected,
     connectPayPal,
     disconnectPayPal,
@@ -18,59 +18,61 @@ const PayPalButton = () => {
 
   const handleConnectPayPal = async () => {
     if (!isAuthenticated) {
-        toast.error('Please log in first to connect your PayPal account');
-        return;
+      toast.error('Please log in first to connect your PayPal account');
+      return;
     }
 
     setOnboarding(true);
     try {
-        const response = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/v1/paypal/onboard-seller`,
+      const token = localStorage.getItem('token');
+      console.log('Token:', token); // Add this debug line
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL}/paypal/onboard-seller`,
         {
-            method: 'POST',
-            headers: {
+          method: 'POST',
+          headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`,
             'Content-Type': 'application/json'
-            }
+          }
         }
-        );
+      );
 
-        if (!response.ok) {
+      if (!response.ok) {
         const errorText = await response.text();
         let errorMessage = 'Failed to start PayPal onboarding';
-        
+
         try {
-            const errorData = JSON.parse(errorText);
-            errorMessage = errorData.detail || errorMessage;
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
         } catch (e) {
-            errorMessage = errorText || errorMessage;
-        }
-        
-        throw new Error(errorMessage);
+          errorMessage = errorText || errorMessage;
         }
 
-        const data = await response.json();
-        
-        // Check for different possible response structures
-        if (data.onboarded || data.merchant_id) {
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json();
+
+      // Check for different possible response structures
+      if (data.onboarded || data.merchant_id) {
         // Already onboarded
         await connectPayPal(data.merchant_id);
         toast.success('PayPal account already connected!');
-        } else if (data.signup_url || data.approve_url) {
+      } else if (data.signup_url || data.approve_url) {
         // Start onboarding process
         sessionStorage.setItem('paypal_onboarding', 'true');
         window.location.href = data.signup_url || data.approve_url;
-        } else {
+      } else {
         console.log('PayPal response:', data);
         throw new Error('Invalid response from server - no onboarding URL provided');
-        }
+      }
     } catch (error) {
-        console.error('PayPal connection failed:', error);
-        toast.error('Failed to connect PayPal: ' + error.message);
+      console.error('PayPal connection failed:', error);
+      toast.error('Failed to connect PayPal: ' + error.message);
     } finally {
-        setOnboarding(false);
+      setOnboarding(false);
     }
-    };
+  };
 
   const handleDisconnect = async () => {
     await disconnectPayPal();

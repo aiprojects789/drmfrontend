@@ -3,8 +3,7 @@ import { Button, message, Modal, Spin } from 'antd';
 import { RiDeleteBin3Line } from 'react-icons/ri';
 import axios from 'axios';
 import 'antd/dist/reset.css';
-
-const baseURL = "http://127.0.0.1:8000/api/v1/admin";
+import { baseURL } from '../../../utils/backend_url'; // adjust path if needed
 
 const UsersManagement = () => {
   const [users, setUsers] = useState([]);

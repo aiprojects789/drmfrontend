@@ -1,7 +1,9 @@
 import axios from "axios";
+// import CurrencyConverter from '../utils/currencyUtils';
+import { CurrencyConverter, UserIdentifier } from '../utils/currencyUtils';
 
 const API_BASE_URL =
-  import.meta.env.VITE_BASE_URL_BACKEND || "http://localhost:8000/api/v1";
+  import.meta.env.VITE_BASE_URL_BACKEND;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -612,18 +614,18 @@ export const artworksAPI = {
 
   registerWithImage: async (formData) => {
     try {
-      // If PayPal user and price is in USD, convert to ETH before sending
-      if (isPayPalUser()) {
-        const priceInUSD = formData.get("price");
-        if (priceInUSD) {
-          const { currencyConverter } = await import("../utils/currencyUtils");
-          const priceInETH = currencyConverter.usdToEth(priceInUSD);
-          formData.set("price", priceInETH);
-          console.log(
-            `💰 Converted price: $${priceInUSD} -> ${priceInETH} ETH`
-          );
-        }
-      }
+      // // If PayPal user and price is in USD, convert to ETH before sending
+      // if (isPayPalUser()) {
+      //   const priceInUSD = formData.get("price");
+      //   if (priceInUSD) {
+      //     // const { currencyConverter } = await import("../utils/currencyUtils");
+      //     const priceInETH = CurrencyConverter.usdToEth(priceInUSD);
+      //     formData.set("price", priceInETH);
+      //     console.log(
+      //       `💰 Converted price: $${priceInUSD} -> ${priceInETH} ETH`
+      //     );
+      //   }
+      // }
 
       const response = await api.post(
         "/artwork/register-with-image",
@@ -637,12 +639,15 @@ export const artworksAPI = {
       );
       return response.data;
     } catch (error) {
+      
       if (error.code === "ECONNABORTED") {
+        console.error('❌ Register with image failed:', error);
         throw new Error(
           "Registration timed out. Please try with a smaller image."
         );
       }
       handleApiError(error, "Register with image");
+      throw error;
     }
   },
 
@@ -829,7 +834,8 @@ export const artworksAPI = {
         token_id: parseInt(data.token_id),
         buyer_address: data.buyer_address,
         seller_address: data.seller_address,
-        sale_price_wei: data.sale_price_wei, // ✅ Use wei value sent from frontend
+        sale_price_wei: data.sale_price_wei,
+        payment_method: data.payment_method || 'crypto'  // ✅ ADD THIS // ✅ Use wei value sent from frontend
       };
 
       const response = await api.post(

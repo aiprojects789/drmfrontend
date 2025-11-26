@@ -4,7 +4,8 @@ import { CheckCircle, XCircle } from 'lucide-react';
 import axios from 'axios';
 
 const { Meta } = Card;
-const baseURL = "http://127.0.0.1:8000//api/v1/admin";
+import { baseURL } from '../../../utils/backend_url'; // adjust path if needed
+
 
 const ControlArtworks = () => {
   const [artworks, setArtworks] = useState([]);

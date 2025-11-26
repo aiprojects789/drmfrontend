@@ -58,7 +58,7 @@ const IPFSImage = ({
 
   const hash = extractIPFSHash(ipfsUri);
   const gateways = hash ? getIPFSGateways(hash) : [];
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  const API_BASE = import.meta.env.VITE_API_BASE_URl;
   const fallbackUrl = tokenId ? `${API_BASE}/api/v1/artwork/${tokenId}/image` : null;
 
   // Define tryFallback FIRST

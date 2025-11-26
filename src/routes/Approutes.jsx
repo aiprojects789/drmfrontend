@@ -24,13 +24,14 @@ import ControlArtworks from '../pages/dashboard/AdminDash/ControlArtworks'
 import UsersManagement from '../pages/dashboard/AdminDash/UserManagement'
 import AdminManagement from '../pages/dashboard/AdminDash/AdminManagement'
 import LicensesPage from '../pages/LicensesPage';
-import PayPalOnboardSuccess from '../pages/PaypalOnboardSuccess'
+import PayPalOnboardSuccess from '../pages/PayPalOnboardSuccess.jsx'
 import ScrollRestore from '../components/ScrollRestore'
 import ProtectedRoute from './ProtectedRoutes'
 import SalePage from '../pages/SalePage'
 import LicensePage from '../pages/LicensePage'
 import ArtworkDetail from '../pages/ArtworkDetail'
 import OAuthCallback from '../pages/OAuthCallback';
+// import PayPalOAuthCallback from '../pages/PaypalOAuthCallback';
 
 const AppRoutes = () => {
     return (
@@ -54,6 +55,7 @@ const AppRoutes = () => {
                     <Route path="/onboard-success" element={<PayPalOnboardSuccess />} />
                     <Route path="/auth/callback" element={<OAuthCallback />} />
                     {/* <Route path="/settings" element={<Settings />} /> */}
+                    {/* <Route path="/paypal/oauth-callback" element={<PayPalOAuthCallback />} /> */}
 
                     {/* User Dashboard routes with MainLayout */}
                     <Route 

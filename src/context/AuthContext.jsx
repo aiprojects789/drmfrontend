@@ -114,7 +114,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       const response = await fetch(
-        `${import.meta.env.VITE_BASE_URL_BACKEND || "http://localhost:8000"}/auth/login`,
+        `${import.meta.env.VITE_BASE_URL_BACKEND}/auth/login`,
         {
           method: "POST",
           headers: {

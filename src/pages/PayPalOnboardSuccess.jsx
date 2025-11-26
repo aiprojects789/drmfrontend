@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect,useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { CheckCircle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -8,12 +8,15 @@ const PayPalOnboardSuccess = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { connectPayPal } = useAuth();
+  const [processed, setProcessed] = useState(false);
   
   useEffect(() => {
+    if (processed) return; // ✅ Prevent duplicate calls
     const handleOnboardingComplete = async () => {
       const merchantId = searchParams.get('merchantIdInPayPal') || searchParams.get('merchant_id');
       
       if (merchantId) {
+        setProcessed(true); // ✅ Mark as processed
         // Connect the PayPal account
         const result = await connectPayPal(merchantId);
         
@@ -33,7 +36,7 @@ const PayPalOnboardSuccess = () => {
     };
 
     handleOnboardingComplete();
-  }, [searchParams, connectPayPal, navigate]);
+  }, [searchParams, connectPayPal, navigate, processed]);
   
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
