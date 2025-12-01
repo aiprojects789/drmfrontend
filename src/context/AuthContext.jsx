@@ -125,8 +125,8 @@ export const AuthProvider = ({ children }) => {
       // Make the API call with proper headers
       const response = await fetch(
         `${
-          import.meta.env.VITE_API_BASE_URL || "http://localhost:8000"
-        }/api/v1/auth/login`,
+          import.meta.env.VITE_API_BASE_URL || "http://34.237.75.215:8000"
+        }/auth/login`,
         {
           method: "POST",
           headers: {
