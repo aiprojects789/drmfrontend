@@ -72,7 +72,7 @@ const AuthForm = ({ onForgetPasswordClick, onGoogleSuccess, onGoogleError }) => 
           if (response.data?.role === 'admin') {
             navigate('/admin/dashboard');
           } else {
-            navigate('/');
+            navigate('/dashboard');
           }
         }
       } catch (error) {
@@ -97,7 +97,7 @@ const AuthForm = ({ onForgetPasswordClick, onGoogleSuccess, onGoogleError }) => 
         if (response.data?.role === 'admin') {
           navigate('/admin/dashboard');
         } else {
-          navigate('/');
+          navigate('/dashboard');
         }
       } else if (response.require2FA) {
         // Still needs 2FA - code was invalid

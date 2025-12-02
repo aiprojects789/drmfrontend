@@ -25,7 +25,7 @@ export default function Chatbot() {
     if (isOpen && messages.length === 0) {
       const welcomeMessage = {
         role: "bot",
-        content: `🤖 **Welcome to XDRM AI Assistant!** 
+        content: `🤖 **Welcome to xDRM AI Assistant!** 
 
 I'm your intelligent guide for everything related to digital artwork protection. Here's what I can help you with:
 

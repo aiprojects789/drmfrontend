@@ -6,7 +6,7 @@ const Footer= () => {
       <div className="max-w-7xl mx-auhref px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="col-span-1 md:col-span-1">
-            <h2 className="text-lg font-bold mb-4">XDRM</h2>
+            <h2 className="text-lg font-bold mb-4">xDRM</h2>
             <p className="text-gray-400 mb-4">
               Empowering ethical creators with blockchain-powered DRM to protect their digital rights.
             </p>
@@ -110,7 +110,7 @@ const Footer= () => {
         </div>
         <div className="mt-8 pt-8 border-t border-gray-700">
           <p className="text-gray-400 text-sm text-center">
-            &copy; {new Date().getFullYear()} ARTDUNIYA by Softech Digital Group. All rights reserved.
+            &copy; {new Date().getFullYear()} xDRM by Softech Digital Group. All rights reserved.
           </p>
         </div>
       </div>

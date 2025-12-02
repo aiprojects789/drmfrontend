@@ -19,7 +19,7 @@ const Auth = () => {
       if (response.role === 'admin') {
         navigate('/admin/dashboard');
       } else {
-        navigate('/');
+        navigate('/dashboard');
       }
     } catch (error) {
       console.error('Google login failed:', error);
