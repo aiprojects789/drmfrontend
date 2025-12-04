@@ -94,6 +94,24 @@ const schema = yup.object({
     }),
 });
 
+const dataURLtoFile = (dataurl, filename) => {
+  if (!dataurl) return null;
+  try {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while(n--){
+        u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, {type:mime});
+  } catch (e) {
+    console.error("Error restoring file:", e);
+    return null;
+  }
+};
+
 const UploadArtworks = () => {
   const navigate = useNavigate();
   const { account, sendTransaction, isCorrectNetwork } = useWeb3();
@@ -171,6 +189,103 @@ const UploadArtworks = () => {
       description: "", // ✅ Ensure this is empty, not "Hand-painted artwork"
     },
   });
+// ✅ RESTORE DRAFT: Runs once on page load
+  useEffect(() => {
+    const savedDraft = localStorage.getItem('artwork_upload_draft');
+    
+    if (savedDraft) {
+      try {
+        console.log("Found saved draft, restoring...");
+        const parsed = JSON.parse(savedDraft);
+        
+        // 1. Restore Price Mode FIRST (so the unit is correct)
+        if (parsed.priceInputMode) {
+          setPriceInputMode(parsed.priceInputMode);
+        }
+
+        // 2. Restore Text Fields
+        setValue('title', parsed.title || '');
+        setValue('description', parsed.description || '');
+        
+        // FIX: Check if price is not null/undefined so 0 is preserved
+        const savedPrice = (parsed.price !== undefined && parsed.price !== null) ? parsed.price : '';
+        setValue('price', savedPrice);
+
+        setValue('royalty_percentage', parsed.royalty_percentage || 1000);
+        setValue('medium_category', parsed.medium_category || '');
+        setValue('style_category', parsed.style_category || '');
+        setValue('subject_category', parsed.subject_category || '');
+        
+        // 3. Restore Image & Preview
+        if (parsed.imageBase64 && parsed.fileName) {
+           const file = dataURLtoFile(parsed.imageBase64, parsed.fileName);
+           if (file) {
+             setUploadedFile(file);
+             setValue('image', file, { shouldValidate: true }); 
+             setPreviewUrl(parsed.imageBase64);
+           }
+        }
+
+        // 4. Restore Validation States
+        if (parsed.validationPassed) {
+          setDuplicateCheck(parsed.duplicateCheck);
+          setAiClassification(parsed.aiClassification);
+          setValidationPassed(true);
+          toast.success("Resumed previous upload session");
+        }
+
+      } catch (error) {
+        console.error("Failed to restore draft:", error);
+        localStorage.removeItem('artwork_upload_draft'); 
+      }
+    }
+  }, []);
+
+  // ✅ AUTO-SAVE: Runs whenever important data changes
+  useEffect(() => {
+    // Only save if there is at least a title or a file
+    const currentValues = watch(); // Get all form values
+    
+    if (currentValues.title || uploadedFile) {
+      const draftData = {
+     // Form Values
+        title: currentValues.title,
+        description: currentValues.description,
+        price: currentValues.price,
+        priceInputMode: priceInputMode, // <--- ADD THIS LINE (Saves ETH vs USD choice)
+        royalty_percentage: currentValues.royalty_percentage,
+        medium_category: currentValues.medium_category,
+        style_category: currentValues.style_category,
+        subject_category: currentValues.subject_category,
+     
+     // Image Data
+        imageBase64: previewUrl, 
+        fileName: uploadedFile ? uploadedFile.name : null,
+
+     // Check Results
+        duplicateCheck: duplicateCheck,
+        aiClassification: aiClassification,
+        validationPassed: validationPassed
+   };
+
+      try {
+        localStorage.setItem('artwork_upload_draft', JSON.stringify(draftData));
+      } catch (e) {
+        // Handle "Quota Exceeded" if image is too massive
+        console.warn("Draft too large to save automatically");
+      }
+    }
+  }, [
+    watch('title'), 
+    watch('description'), 
+    watch('price'),
+    priceInputMode, 
+    uploadedFile, 
+    previewUrl, 
+    duplicateCheck, 
+    aiClassification, 
+    validationPassed
+  ]);
 
   const image = watch("image");
   const mediumCategory = watch("medium_category");
@@ -518,7 +633,8 @@ const UploadArtworks = () => {
           aiFormData.append("model", selectedAIModel);
 
           console.log(
-            `AI classification attempt ${aiAttempts + 1
+            `AI classification attempt ${
+              aiAttempts + 1
             } with model: ${selectedAIModel}...`
           );
 
@@ -543,7 +659,7 @@ const UploadArtworks = () => {
           // FIXED: Match backend logic - if is_ai_generated is True, reject regardless of confidence
           const isAIGenerated = normalizedAiResult.is_ai_generated;
           const confidence = normalizedAiResult.confidence || 0;
-
+          
           console.log("AI Detection Analysis:");
           console.log("is_ai_generated:", isAIGenerated);
           console.log("confidence:", confidence);
@@ -581,7 +697,7 @@ const UploadArtworks = () => {
 
             // ✅ FIXED: AUTO-FILL DESCRIPTION - Use the actual description from API
             const apiDescription = normalizedAiResult.description;
-
+            
             console.log("=== DEBUG AI DESCRIPTION ===");
             console.log("API Description:", apiDescription);
             console.log("Description length:", apiDescription?.length);
@@ -589,21 +705,21 @@ const UploadArtworks = () => {
             console.log("=== END DEBUG ===");
 
             // Only auto-fill if we have a meaningful description from API
-            if (apiDescription &&
-              apiDescription.trim() &&
-              apiDescription.length > 10 && // Ensure it's not too short
-              apiDescription !== "Hand-painted artwork") {
-
+            if (apiDescription && 
+                apiDescription.trim() && 
+                apiDescription.length > 10 && // Ensure it's not too short
+                apiDescription !== "Hand-painted artwork") {
+              
               // Clear any existing value first to ensure it updates
               setValue("description", "");
-
+              
               // Use timeout to ensure the clear happens before setting new value
               setTimeout(() => {
                 setValue("description", apiDescription);
                 toast.success("✨ Description auto-generated based on artwork analysis");
                 console.log("✅ Successfully auto-filled description from API:", apiDescription);
               }, 100);
-
+              
             } else {
               console.warn("Not auto-filling description because:", {
                 hasDescription: !!apiDescription,
@@ -703,15 +819,6 @@ const UploadArtworks = () => {
 
   // Enhanced submit function with categories and price
   const onSubmit = async (data) => {
-    // / ✅ ADD DEBUG LOGGING
-    console.log("=== CURRENCY CONVERTER DEBUG ===");
-    console.log("CurrencyConverter:", CurrencyConverter);
-    console.log("CurrencyConverter.usdToEth:", CurrencyConverter?.usdToEth);
-    console.log("typeof CurrencyConverter:", typeof CurrencyConverter);
-    console.log("priceInputMode:", priceInputMode);
-    console.log("data.price:", data.price);
-    console.log("=================================");
-
     // Check payment method requirements
     if (paymentMethod === "crypto") {
       if (!isCorrectNetwork || !account) {
@@ -739,10 +846,6 @@ const UploadArtworks = () => {
       let finalPrice = data.price;
       if (priceInputMode === "usd") {
         finalPrice = CurrencyConverter.usdToEth(data.price);
-        //  Inline conversion if CurrencyConverter fails
-        // const ETH_TO_USD_RATE = 2700;
-        // finalPrice = parseFloat(data.price) / ETH_TO_USD_RATE;
-        console.log(`Converted ${data.price} USD to ${finalPrice} ETH`);
       }
 
       // Create FormData with compressed image, categories, and price
@@ -757,7 +860,6 @@ const UploadArtworks = () => {
       formData.append("subject_category", data.subject_category);
       formData.append("ai_model", selectedAIModel);
       formData.append("image", compressedImage, data.image.name);
-      console.log('📤 Sending registration with price:', price);  // ✅ Debug log
 
       // Add other category fields if they exist
       if (data.other_medium) {
@@ -880,6 +982,7 @@ const UploadArtworks = () => {
 
         // Success
         setTransactionHash(txResponse.hash);
+        localStorage.removeItem('artwork_upload_draft');
         toast.success("Artwork registered successfully!");
         reset();
         setCurrentStep("complete");
@@ -979,7 +1082,7 @@ const UploadArtworks = () => {
   // Format price display
   const formatPriceDisplay = () => {
     if (!priceValue || isNaN(priceValue)) return "Enter price";
-
+    
     if (priceInputMode === "usd") {
       return CurrencyConverter.formatUsd(priceValue);
     }
@@ -1016,8 +1119,8 @@ const UploadArtworks = () => {
       if (type === "ai") {
         return check?.is_ai_generated
           ? `AI-generated: ${check.description} (${(
-            check.confidence * 100
-          ).toFixed(1)}% confidence)`
+              check.confidence * 100
+            ).toFixed(1)}% confidence)`
           : "Human-created content";
       }
       return "";
@@ -1131,10 +1234,11 @@ const UploadArtworks = () => {
   const renderUploadStep = () => (
     <div className="mt-6">
       <div
-        className={`border-2 border-dashed rounded-lg p-8 text-center ${uploadedFile && validationPassed
+        className={`border-2 border-dashed rounded-lg p-8 text-center ${
+          uploadedFile && validationPassed
             ? "border-purple-800"
             : "border-gray-300 hover:border-gray-400"
-          } transition-colors duration-200`}
+        } transition-colors duration-200`}
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
@@ -1325,7 +1429,7 @@ const UploadArtworks = () => {
             <Input
               id="price"
               type="number"
-              step="0.001"
+              inputProps={{ step: "any", min: "0" }} // ✅ FIXED: Allows any decimal value
               {...register("price")}
               error={!!errors.price}
               fullWidth
@@ -1348,7 +1452,7 @@ const UploadArtworks = () => {
         )}
         {priceValue && !isNaN(priceValue) && (
           <p className="mt-1 text-sm text-gray-500">
-            {priceInputMode === "usd"
+            {priceInputMode === "usd" 
               ? `≈ ${CurrencyConverter.formatEth(CurrencyConverter.usdToEth(priceValue))}`
               : `≈ ${CurrencyConverter.formatUsd(CurrencyConverter.ethToUsd(priceValue))}`
             }
@@ -1545,13 +1649,13 @@ const UploadArtworks = () => {
       {(categories.medium.some((cat) => cat.id === "error") ||
         categories.style.some((cat) => cat.id === "error") ||
         categories.subject.some((cat) => cat.id === "error")) && (
-          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-600">
-              Failed to load categories. Please refresh the page or try again
-              later.
-            </p>
-          </div>
-        )}
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-600">
+            Failed to load categories. Please refresh the page or try again
+            later.
+          </p>
+        </div>
+      )}
 
       {/* Validation Summary */}
       {(duplicateCheck || aiClassification) && (
@@ -1783,15 +1887,17 @@ const UploadArtworks = () => {
           <nav className="flex justify-between">
             <button
               type="button"
-              className={`text-sm font-medium ${currentStep === "upload" ? "text-purple-800" : "text-gray-500"
-                }`}
+              className={`text-sm font-medium ${
+                currentStep === "upload" ? "text-purple-800" : "text-gray-500"
+              }`}
               disabled={true}
             >
               <span
-                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${currentStep === "upload"
+                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
+                  currentStep === "upload"
                     ? "bg-purple-800 text-white"
                     : "bg-gray-200 text-gray-600"
-                  }`}
+                }`}
               >
                 1
               </span>
@@ -1800,15 +1906,17 @@ const UploadArtworks = () => {
             <div className="hidden sm:block w-10 h-0.5 self-center bg-gray-200"></div>
             <button
               type="button"
-              className={`text-sm font-medium ${currentStep === "details" ? "text-purple-800" : "text-gray-500"
-                }`}
+              className={`text-sm font-medium ${
+                currentStep === "details" ? "text-purple-800" : "text-gray-500"
+              }`}
               disabled={true}
             >
               <span
-                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${currentStep === "details"
+                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
+                  currentStep === "details"
                     ? "bg-purple-800 text-white"
                     : "bg-gray-200 text-gray-600"
-                  }`}
+                }`}
               >
                 2
               </span>
@@ -1817,17 +1925,19 @@ const UploadArtworks = () => {
             <div className="hidden sm:block w-10 h-0.5 self-center bg-gray-200"></div>
             <button
               type="button"
-              className={`text-sm font-medium ${currentStep === "blockchain" || currentStep === "complete"
+              className={`text-sm font-medium ${
+                currentStep === "blockchain" || currentStep === "complete"
                   ? "text-purple-800"
                   : "text-gray-500"
-                }`}
+              }`}
               disabled={true}
             >
               <span
-                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${currentStep === "blockchain" || currentStep === "complete"
+                className={`rounded-full w-8 h-8 inline-flex items-center justify-center mr-2 ${
+                  currentStep === "blockchain" || currentStep === "complete"
                     ? "bg-purple-800 text-white"
                     : "bg-gray-200 text-gray-600"
-                  }`}
+                }`}
               >
                 3
               </span>
